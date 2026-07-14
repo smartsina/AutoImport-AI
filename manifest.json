@@ -1,0 +1,106 @@
+{
+  "manifest_version": 3,
+  "name": "AutoImport AI - ثبت هوشمند نامه وارده",
+  "short_name": "AutoImport AI",
+  "version": "1.0.4",
+  "description": "ثبت خودکار نامه‌های وارده با هوش مصنوعی - اداره کل آموزش و پرورش فارس",
+  "author": "محمد رضا حسنی پور",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AutoImport AI",
+    "default_icon": {
+      "16": "icon.png",
+      "32": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "icons": {
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "host_permissions": [
+    "http://auto.farsedu.ir/*",
+    "https://auto.farsedu.ir/*",
+    "http://auto1.farsedu.ir/*",
+    "https://auto1.farsedu.ir/*",
+    "http://auto2.farsedu.ir/*",
+    "https://auto2.farsedu.ir/*",
+    "http://auto3.farsedu.ir/*",
+    "https://auto3.farsedu.ir/*",
+    "http://auto4.farsedu.ir/*",
+    "https://auto4.farsedu.ir/*",
+    "https://dolat.auto.farsedu.ir/*",
+    "http://127.0.0.1:*/*",
+    "http://localhost:*/*",
+    "https://*.arvancloudai.ir/*",
+    "https://*.arvancloud.ir/*",
+    "https://*.arvancloud.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://auto.farsedu.ir/*",
+        "https://auto.farsedu.ir/*",
+        "http://auto1.farsedu.ir/*",
+        "https://auto1.farsedu.ir/*",
+        "http://auto2.farsedu.ir/*",
+        "https://auto2.farsedu.ir/*",
+        "http://auto3.farsedu.ir/*",
+        "https://auto3.farsedu.ir/*",
+        "http://auto4.farsedu.ir/*",
+        "https://auto4.farsedu.ir/*",
+        "http://dolat.auto.farsedu.ir/*",
+        "https://dolat.auto.farsedu.ir/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "styles.css"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icon.png",
+        "address_book.json",
+        "BKoodkBd.ttf",
+        "config.json"
+      ],
+      "matches": [
+        "http://auto.farsedu.ir/*",
+        "https://auto.farsedu.ir/*",
+        "http://auto1.farsedu.ir/*",
+        "https://auto1.farsedu.ir/*",
+        "http://auto2.farsedu.ir/*",
+        "https://auto2.farsedu.ir/*",
+        "http://auto3.farsedu.ir/*",
+        "https://auto3.farsedu.ir/*",
+        "http://auto4.farsedu.ir/*",
+        "https://auto4.farsedu.ir/*",
+        "http://dolat.auto.farsedu.ir/*",
+        "https://dolat.auto.farsedu.ir/*"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:;"
+  },
+  "minimum_chrome_version": "88"
+}

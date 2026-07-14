@@ -1,0 +1,164 @@
+/* ===== AutoImport AI - Injected Styles ===== */
+
+/* پنل اصلی */
+#ai-autoimport-panel {
+    position: fixed;
+    top: 60px;
+    left: 20px;
+    width: 340px;
+    background: #1e1b4b;
+    border: 1px solid #4f46e5;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(79,70,229,.5), 0 0 0 1px rgba(255,255,255,.05);
+    z-index: 999999;
+    font-family: Tahoma, 'Segoe UI', sans-serif;
+    direction: rtl;
+    overflow: hidden;
+    animation: ai-slide-in 0.3s cubic-bezier(.34,1.56,.64,1);
+}
+
+@keyframes ai-slide-in {
+    from { opacity: 0; transform: translateY(-20px) scale(.95); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.ai-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    color: #fff;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.ai-panel-header button {
+    background: rgba(255,255,255,.15);
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .2s;
+}
+.ai-panel-header button:hover { background: rgba(255,255,255,.3); }
+
+.ai-panel-body {
+    padding: 12px 14px;
+}
+
+/* مراحل */
+.ai-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.ai-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.08);
+    font-size: 12px;
+    color: #a5b4fc;
+    transition: all .3s;
+}
+
+.ai-step-icon { font-size: 14px; }
+.ai-step-label { flex: 1; }
+.ai-step-status { margin-right: auto; font-size: 14px; }
+
+.ai-step-done {
+    background: rgba(16,185,129,.12);
+    border-color: rgba(16,185,129,.3);
+    color: #6ee7b7;
+}
+
+.ai-step-loading {
+    background: rgba(99,102,241,.15);
+    border-color: rgba(99,102,241,.4);
+    color: #c7d2fe;
+    animation: ai-pulse 1.5s infinite;
+}
+
+.ai-step-error {
+    background: rgba(239,68,68,.12);
+    border-color: rgba(239,68,68,.3);
+    color: #fca5a5;
+}
+
+@keyframes ai-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* داده‌های استخراج شده */
+.ai-extracted-data {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+}
+
+.ai-data-row {
+    display: flex;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 11px;
+    color: #c4b5fd;
+    border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.ai-data-row:last-child { border-bottom: none; }
+.ai-data-label { color: #818cf8; min-width: 80px; }
+.ai-data-value { color: #e0e7ff; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* پیام وضعیت */
+.ai-panel-message {
+    font-size: 11px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    min-height: 24px;
+    color: #c4b5fd;
+}
+.ai-msg-loading { color: #a5b4fc; }
+.ai-msg-done    { color: #6ee7b7; }
+.ai-msg-error   { color: #fca5a5; }
+
+/* نوتیفیکیشن */
+#ai-autoimport-notif {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-family: Tahoma, sans-serif;
+    direction: rtl;
+    z-index: 9999999;
+    box-shadow: 0 4px 20px rgba(0,0,0,.3);
+    animation: ai-notif-in .3s ease;
+    white-space: nowrap;
+}
+
+@keyframes ai-notif-in {
+    from { opacity: 0; transform: translate(-50%, 20px); }
+    to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.ai-notif-success { background: #065f46; color: #6ee7b7; border: 1px solid #059669; }
+.ai-notif-error   { background: #7f1d1d; color: #fca5a5; border: 1px solid #dc2626; }
+.ai-notif-warning { background: #78350f; color: #fcd34d; border: 1px solid #d97706; }
+.ai-notif-info    { background: #1e1b4b; color: #a5b4fc; border: 1px solid #4f46e5; }

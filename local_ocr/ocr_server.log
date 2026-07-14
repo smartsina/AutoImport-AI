@@ -1,0 +1,92 @@
+12:03:46 [OCR] INFO: =======================================================
+12:03:46 [OCR] INFO:   AutoImport AI  -  سرور OCR محلی  v1.0
+12:03:46 [OCR] INFO: =======================================================
+12:03:46 [OCR] INFO: ✅ Apple Vision (ocrmac) آماده است
+12:03:46 [OCR] WARNING: ⚠️  EasyOCR: No module named 'easyocr'
+12:03:46 [OCR] WARNING: ⚠️  Tesseract نصب نشده
+12:03:46 [OCR] INFO: ✅ PyMuPDF (PDF) آماده است
+12:03:46 [OCR] INFO: 📡 موتورهای فعال: apple_vision_ocrmac, pymupdf
+12:03:46 [OCR] INFO: 🚀  http://127.0.0.1:5151
+12:43:01 [OCR] INFO: =======================================================
+12:43:01 [OCR] INFO:   AutoImport AI  -  سرور OCR محلی  v1.0
+12:43:01 [OCR] INFO: =======================================================
+12:43:01 [OCR] INFO: ✅ Apple Vision (ocrmac) آماده است
+12:43:01 [OCR] WARNING: ⚠️  EasyOCR: No module named 'easyocr'
+12:43:01 [OCR] WARNING: ⚠️  Tesseract نصب نشده
+12:43:01 [OCR] INFO: ✅ PyMuPDF (PDF) آماده است
+12:43:01 [OCR] INFO: 📡 موتورهای فعال: apple_vision_ocrmac, pymupdf
+12:43:01 [OCR] INFO: 🚀  http://127.0.0.1:5151
+13:01:26 [OCR] INFO: =======================================================
+13:01:26 [OCR] INFO:   AutoImport AI  -  سرور OCR محلی  v1.0
+13:01:26 [OCR] INFO: =======================================================
+13:01:26 [OCR] INFO: ✅ Apple Vision (ocrmac) آماده است
+13:01:26 [OCR] WARNING: ⚠️  EasyOCR: No module named 'easyocr'
+13:01:26 [OCR] WARNING: ⚠️  Tesseract نصب نشده
+13:01:26 [OCR] INFO: ✅ PyMuPDF (PDF) آماده است
+13:01:26 [OCR] INFO: 📡 موتورهای فعال: apple_vision_ocrmac, pymupdf
+13:01:26 [OCR] INFO: 🚀  http://127.0.0.1:5151
+13:01:26 [OCR] INFO: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5151
+13:01:26 [OCR] INFO: [33mPress CTRL+C to quit[0m
+13:03:30 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:03:30] "GET /health HTTP/1.1" 200 -
+13:03:30 [OCR] INFO: OCR صفحه 1/1 ...
+13:03:31 [OCR] ERROR: ❌ همه موتورها شکست خوردند: 
+13:03:31 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:03:31] "[35m[1mPOST /ocr HTTP/1.1[0m" 500 -
+13:05:25 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:05:25] "GET /health HTTP/1.1" 200 -
+13:05:25 [OCR] INFO: OCR صفحه 1/1 ...
+13:05:26 [OCR] ERROR: ❌ همه موتورها شکست خوردند: 
+13:05:26 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:05:26] "[35m[1mPOST /ocr HTTP/1.1[0m" 500 -
+13:06:21 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:06:21] "GET /health HTTP/1.1" 200 -
+13:06:21 [OCR] INFO: OCR صفحه 1/1 ...
+13:06:21 [OCR] ERROR: ❌ همه موتورها شکست خوردند: 
+13:06:21 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:06:21] "[35m[1mPOST /ocr HTTP/1.1[0m" 500 -
+13:07:12 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:07:12] "GET /health HTTP/1.1" 200 -
+13:07:12 [OCR] INFO: OCR صفحه 1/1 ...
+13:07:13 [OCR] ERROR: ❌ همه موتورها شکست خوردند: 
+13:07:13 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:07:13] "[35m[1mPOST /ocr HTTP/1.1[0m" 500 -
+13:08:45 [OCR] INFO: =======================================================
+13:08:45 [OCR] INFO:   AutoImport AI  -  سرور OCR محلی  v1.0
+13:08:45 [OCR] INFO: =======================================================
+13:08:45 [OCR] INFO: ✅ Apple Vision (ocrmac) آماده است
+13:08:45 [OCR] WARNING: ⚠️  EasyOCR: No module named 'easyocr'
+13:08:45 [OCR] WARNING: ⚠️  Tesseract نصب نشده
+13:08:45 [OCR] INFO: ✅ PyMuPDF (PDF) آماده است
+13:08:45 [OCR] INFO: 📡 موتورهای فعال: apple_vision_ocrmac, pymupdf
+13:08:45 [OCR] INFO: 🚀  http://127.0.0.1:5151
+13:08:45 [OCR] INFO: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5151
+13:08:45 [OCR] INFO: [33mPress CTRL+C to quit[0m
+13:11:34 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:11:34] "GET /health HTTP/1.1" 200 -
+13:11:34 [OCR] INFO: 📥 Received file: 31147 bytes. Ext: .png. Header: b'\x89PNG\r\n\x1a\n\x00\x00'
+13:11:34 [OCR] INFO: OCR صفحه 1/1 ...
+13:11:35 [OCR] ERROR: ❌ همه موتورها شکست خوردند: 
+13:11:35 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:11:35] "[35m[1mPOST /ocr HTTP/1.1[0m" 500 -
+13:12:59 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:12:59] "GET /health HTTP/1.1" 200 -
+13:12:59 [OCR] INFO: 📥 Received file: 31147 bytes. Ext: .png. Header: b'\x89PNG\r\n\x1a\n\x00\x00'
+13:12:59 [OCR] INFO: OCR صفحه 1/1 ...
+13:12:59 [OCR] ERROR: ❌ همه موتورها شکست خوردند: 
+13:12:59 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:12:59] "[35m[1mPOST /ocr HTTP/1.1[0m" 500 -
+13:14:09 [OCR] INFO: =======================================================
+13:14:09 [OCR] INFO:   AutoImport AI  -  سرور OCR محلی  v1.0
+13:14:09 [OCR] INFO: =======================================================
+13:14:09 [OCR] INFO: ✅ Apple Vision (ocrmac) آماده است
+13:14:09 [OCR] WARNING: ⚠️  EasyOCR: No module named 'easyocr'
+13:14:09 [OCR] WARNING: ⚠️  Tesseract نصب نشده
+13:14:09 [OCR] INFO: ✅ PyMuPDF (PDF) آماده است
+13:14:09 [OCR] INFO: 📡 موتورهای فعال: apple_vision_ocrmac, pymupdf
+13:14:09 [OCR] INFO: 🚀  http://127.0.0.1:5151
+13:14:09 [OCR] INFO: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5151
+13:14:09 [OCR] INFO: [33mPress CTRL+C to quit[0m
+13:16:29 [OCR] INFO: =======================================================
+13:16:29 [OCR] INFO:   AutoImport AI  -  سرور OCR محلی  v1.0
+13:16:29 [OCR] INFO: =======================================================
+13:16:29 [OCR] INFO: ✅ Apple Vision (ocrmac) آماده است
+13:16:29 [OCR] WARNING: ⚠️  EasyOCR: No module named 'easyocr'
+13:16:29 [OCR] WARNING: ⚠️  Tesseract نصب نشده
+13:16:29 [OCR] INFO: ✅ PyMuPDF (PDF) آماده است
+13:16:29 [OCR] INFO: 📡 موتورهای فعال: apple_vision_ocrmac, pymupdf
+13:16:29 [OCR] INFO: 🚀  http://127.0.0.1:5151
+13:16:29 [OCR] INFO: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5151
+13:16:29 [OCR] INFO: [33mPress CTRL+C to quit[0m

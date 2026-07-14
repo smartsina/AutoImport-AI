@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""
+AutoImport AI - Local OCR Server
+سرور OCR محلی - پشتیبانی از همه فرمت‌ها
+Port: 5151
+"""
+
+import base64, os, sys, tempfile, logging
+from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [OCR] %(levelname)s: %(message)s',
+    datefmt='%H:%M:%S',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(os.path.join(os.path.dirname(__file__), 'ocr_server.log'), encoding='utf-8')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# وضعیت موتورهای OCR
+engines = {
+    "apple_vision_ocrmac": False,
+    "apple_vision_pyobjc": False,
+    "easyocr": False,
+    "tesseract": False,
+    "pymupdf": False,
+}
+_easyocr_reader = None
+
+
+def init_engines():
+    global _easyocr_reader, engines
+
+    # Apple Vision از طریق ocrmac
+    try:
+        import ocrmac
+        engines["apple_vision_ocrmac"] = True
+        logger.info("✅ Apple Vision (ocrmac) آماده است")
+    except Exception:
+        logger.warning("⚠️  ocrmac نصب نشده")
+
+    # Apple Vision از طریق pyobjc
+    if not engines["apple_vision_ocrmac"]:
+        try:
+            import Vision
+            engines["apple_vision_pyobjc"] = True
+            logger.info("✅ Apple Vision (pyobjc) آماده است")
+        except Exception:
+            logger.warning("⚠️  pyobjc Vision نصب نشده")
+
+    # EasyOCR
+    try:
+        import easyocr
+        logger.info("⏳ EasyOCR در حال بارگذاری مدل فارسی...")
+        _easyocr_reader = easyocr.Reader(['fa', 'en'], gpu=False, verbose=False)
+        engines["easyocr"] = True
+        logger.info("✅ EasyOCR (فارسی+انگلیسی) آماده است")
+    except Exception as e:
+        logger.warning(f"⚠️  EasyOCR: {e}")
+
+    # Tesseract
+    try:
+        import pytesseract
+        pytesseract.get_tesseract_version()
+        engines["tesseract"] = True
+        logger.info("✅ Tesseract آماده است")
+    except Exception:
+        logger.warning("⚠️  Tesseract نصب نشده")
+
+    # PyMuPDF برای PDF
+    try:
+        import fitz
+        engines["pymupdf"] = True
+        logger.info("✅ PyMuPDF (PDF) آماده است")
+    except Exception:
+        logger.warning("⚠️  PyMuPDF نصب نشده")
+
+    active = [k for k, v in engines.items() if v]
+    if not active:
+        logger.error("❌ هیچ موتور OCR آماده نیست! install.sh را اجرا کنید.")
+    else:
+        logger.info(f"📡 موتورهای فعال: {', '.join(active)}")
+
+
+def ocr_apple_vision_ocrmac(image_path):
+    from ocrmac.ocrmac import OCR
+    # Apple Vision از fa-IR پشتیبانی نمی‌کند؛ ar-SA برای فارسی هم کار می‌کند
+    results = OCR(
+        image_path,
+        language_preference=['ar-SA', 'en-US'],
+        recognition_level='accurate'
+    ).recognize()
+    texts = []
+    for r in results:
+        if isinstance(r, (list, tuple)) and len(r) >= 1:
+            text = r[0] if isinstance(r[0], str) else str(r[0])
+            conf = r[1] if len(r) > 1 and isinstance(r[1], (int, float)) else 1.0
+            if conf > 0.1 and text.strip():
+                texts.append(text)
+    return '\n'.join(texts)
+
+
+def ocr_apple_vision_pyobjc(image_path):
+    import Vision
+    from Foundation import NSURL
+    url = NSURL.fileURLWithPath_(str(image_path))
+    req = Vision.VNRecognizeTextRequest.alloc().init()
+    req.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
+    req.setUsesLanguageCorrection_(True)
+    try:
+        supported, _ = req.supportedRecognitionLanguagesAndReturnError_(None)
+        preferred = [l for l in (supported or []) if any(x in str(l) for x in ['ar', 'fa', 'en'])]
+        if preferred:
+            req.setRecognitionLanguages_(preferred)
+    except Exception:
+        pass
+    handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(url, None)
+    handler.performRequests_error_([req], None)
+    return '\n'.join(obs.topCandidates_(1)[0].string() for obs in (req.results() or []) if obs.topCandidates_(1))
+
+
+def ocr_easyocr(image_path):
+    global _easyocr_reader
+    if _easyocr_reader is None:
+        import easyocr
+        _easyocr_reader = easyocr.Reader(['fa', 'en'], gpu=False, verbose=False)
+    results = _easyocr_reader.readtext(str(image_path), detail=1)
+    results.sort(key=lambda x: x[0][0][1])
+    return '\n'.join(r[1] for r in results if r[2] > 0.2)
+
+
+def ocr_tesseract(image_path):
+    import pytesseract
+    from PIL import Image
+    img = Image.open(str(image_path))
+    try:
+        text = pytesseract.image_to_string(img, lang='fas+eng', config='--psm 6 -c preserve_interword_spaces=1')
+    except Exception:
+        text = pytesseract.image_to_string(img, config='--psm 6')
+    return text.strip()
+
+
+def run_ocr(image_path):
+    errors = []
+    for name, fn in [
+        ("apple_vision_ocrmac", ocr_apple_vision_ocrmac),
+        ("apple_vision_pyobjc", ocr_apple_vision_pyobjc),
+        ("easyocr",             ocr_easyocr),
+        ("tesseract",           ocr_tesseract),
+    ]:
+        if not engines[name]:
+            continue
+        try:
+            text = fn(image_path)
+            if text.strip():
+                return {"text": text, "method": name}
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+            logger.warning(f"{name} شکست: {e}")
+    raise Exception("همه موتورها شکست خوردند: " + " | ".join(errors))
+
+
+def preprocess(image_path):
+    try:
+        from PIL import Image, ImageEnhance
+        img = Image.open(image_path)
+        if img.mode not in ('RGB', 'L'):
+            img = img.convert('RGB')
+        w, h = img.size
+        if max(w, h) < 1200:
+            scale = 1800 / max(w, h)
+            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        img = ImageEnhance.Contrast(img).enhance(1.2)
+        tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False, prefix='ocr_pre_')
+        img.save(tmp.name, 'PNG')
+        return tmp.name
+    except Exception:
+        return image_path
+
+
+def pdf_to_images(pdf_path):
+    if engines["pymupdf"]:
+        import fitz
+        doc = fitz.open(str(pdf_path))
+        paths = []
+        for i, page in enumerate(doc):
+            pix = page.get_pixmap(matrix=fitz.Matrix(2.5, 2.5), alpha=False)
+            tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False, prefix=f'ocr_pdf_p{i}_')
+            pix.save(tmp.name)
+            paths.append(tmp.name)
+        return paths
+    try:
+        from pdf2image import convert_from_path
+        pages = convert_from_path(str(pdf_path), dpi=200)
+        paths = []
+        for i, p in enumerate(pages):
+            tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False, prefix=f'ocr_pdf_p{i}_')
+            p.save(tmp.name, 'PNG')
+            paths.append(tmp.name)
+        return paths
+    except ImportError:
+        raise Exception("PyMuPDF یا pdf2image نیاز است: pip install pymupdf")
+
+
+# Flask Server
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok", "engines": engines})
+
+
+@app.route('/ocr', methods=['POST'])
+def ocr_endpoint():
+    tmps = []
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        image_paths = []
+
+        # base64 / data URI
+        raw = data.get('image_base64') or data.get('image_url') or data.get('base64') or ''
+        if raw:
+            raw = str(raw).strip()
+            ext = '.jpg'
+            if raw.startswith('data:'):
+                ci = raw.index(',')
+                hdr = raw[:ci].lower()
+                raw = raw[ci + 1:]
+                if 'png' in hdr:  ext = '.png'
+                elif 'pdf' in hdr: ext = '.pdf'
+                elif 'tif' in hdr: ext = '.tiff'
+            raw = raw.replace('\n','').replace('\r','').replace(' ','').replace('\t','')
+            try:
+                img_bytes = base64.b64decode(raw, validate=False)
+                logger.info(f"📥 Received file: {len(img_bytes)} bytes. Ext: {ext}. Header: {img_bytes[:10]}")
+                with open("debug.png", "wb") as f:
+                    f.write(img_bytes)
+                
+                # تبدیل تصویر به RGB برای جلوگیری از باگ‌های ocrmac با کانال آلفا/indexed
+                from PIL import Image
+                import io
+                img_pil = Image.open(io.BytesIO(img_bytes))
+                if img_pil.mode != 'RGB':
+                    img_pil = img_pil.convert('RGB')
+                
+                tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False, prefix='ocr_in_')
+                img_pil.save(tmp.name, format='JPEG', quality=95)
+                tmp.close()
+                ext = '.jpg'
+                
+            except Exception as e:
+                return jsonify({"success": False, "error": f"خطا در پردازش تصویر: {e}"}), 400
+            
+            tmps.append(tmp.name)
+            if img_bytes.startswith(b'%PDF'):
+                pages = pdf_to_images(tmp.name); tmps.extend(pages); image_paths.extend(pages)
+            else:
+                image_paths.append(tmp.name)
+
+        # مسیر فایل
+        elif 'file_path' in data:
+            fp = data['file_path']
+            if not os.path.exists(fp):
+                return jsonify({"success": False, "error": f"فایل پیدا نشد: {fp}"}), 404
+            ext = Path(fp).suffix.lower()
+            if ext == '.pdf':
+                pages = pdf_to_images(fp); tmps.extend(pages); image_paths.extend(pages)
+            else:
+                image_paths.append(fp)
+        else:
+            return jsonify({"success": False, "error": "image_base64, image_url یا file_path لازم است"}), 400
+
+        if not image_paths:
+            return jsonify({"success": False, "error": "تصویری برای پردازش نبود"}), 400
+
+        texts = []
+        method = "unknown"
+        for i, ip in enumerate(image_paths):
+            logger.info(f"OCR صفحه {i+1}/{len(image_paths)} ...")
+            pre = preprocess(ip)
+            if pre != ip: tmps.append(pre)
+            res = run_ocr(pre)
+            texts.append(res['text']); method = res['method']
+
+        separator = '\n\n--- صفحه بعد ---\n\n'
+        full = separator.join(texts) if len(texts) > 1 else texts[0]
+        logger.info(f"✅ OCR کامل ({method}): {len(full)} کاراکتر")
+        logger.info(f"=== متن استخراجی ===\n{full}\n====================")
+        return jsonify({"success": True, "text": full, "method": method, "pages": len(image_paths)})
+
+    except Exception as e:
+        logger.error(f"❌ {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        for f in tmps:
+            try: os.unlink(f)
+            except: pass
+
+
+if __name__ == '__main__':
+    logger.info("=" * 55)
+    logger.info("  AutoImport AI  -  سرور OCR محلی  v1.0")
+    logger.info("=" * 55)
+    init_engines()
+    port = int(os.environ.get('OCR_PORT', 5151))
+    logger.info(f"🚀  http://127.0.0.1:{port}")
+    app.run(host='127.0.0.1', port=port, debug=False, threaded=True)

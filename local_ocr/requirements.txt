@@ -1,0 +1,23 @@
+# AutoImport AI - OCR Server Requirements
+
+# Web server
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# Apple Vision wrapper (macOS only - best Persian OCR)
+ocrmac>=0.3.0
+
+# EasyOCR - fallback (پشتیبانی خوب از فارسی)
+easyocr>=1.7.0
+
+# Image processing
+Pillow>=10.0.0
+
+# PDF support (اولویت اول)
+pymupdf>=1.24.0
+
+# PDF fallback
+pdf2image>=1.17.0
+
+# Tesseract wrapper (fallback)
+pytesseract>=0.3.13
