@@ -1,14 +1,78 @@
-13:16:29 [OCR] INFO: =======================================================
-13:16:29 [OCR] INFO:   AutoImport AI  -  سرور OCR محلی  v1.0
-13:16:29 [OCR] INFO: =======================================================
-13:16:29 [OCR] INFO: ✅ Apple Vision (ocrmac) آماده است
-13:16:29 [OCR] WARNING: ⚠️  EasyOCR: No module named 'easyocr'
-13:16:29 [OCR] WARNING: ⚠️  Tesseract نصب نشده
-13:16:29 [OCR] INFO: ✅ PyMuPDF (PDF) آماده است
-13:16:29 [OCR] INFO: 📡 موتورهای فعال: apple_vision_ocrmac, pymupdf
-13:16:29 [OCR] INFO: 🚀  http://127.0.0.1:5151
+13:16:57 [OCR] INFO: =======================================================
+13:16:57 [OCR] INFO:   AutoImport AI  -  سرور OCR محلی  v1.0
+13:16:57 [OCR] INFO: =======================================================
+13:16:57 [OCR] INFO: ✅ Apple Vision (ocrmac) آماده است
+13:16:57 [OCR] WARNING: ⚠️  EasyOCR: No module named 'easyocr'
+13:16:57 [OCR] WARNING: ⚠️  Tesseract نصب نشده
+13:16:57 [OCR] INFO: ✅ PyMuPDF (PDF) آماده است
+13:16:57 [OCR] INFO: 📡 موتورهای فعال: apple_vision_ocrmac, pymupdf
+13:16:57 [OCR] INFO: 🚀  http://127.0.0.1:5151
  * Serving Flask app 'server'
  * Debug mode: off
-13:16:29 [OCR] INFO: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+13:16:57 [OCR] INFO: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
  * Running on http://127.0.0.1:5151
-13:16:29 [OCR] INFO: [33mPress CTRL+C to quit[0m
+13:16:57 [OCR] INFO: [33mPress CTRL+C to quit[0m
+13:18:59 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:18:59] "GET /health HTTP/1.1" 200 -
+13:18:59 [OCR] INFO: 📥 Received file: 31147 bytes. Ext: .png. Header: b'\x89PNG\r\n\x1a\n\x00\x00'
+13:18:59 [OCR] INFO: OCR صفحه 1/1 ...
+13:19:00 [OCR] INFO: ✅ OCR کامل (apple_vision_ocrmac): 4 کاراکتر
+13:19:00 [OCR] INFO: === متن استخراجی ===
+١ ١١
+====================
+13:19:00 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:19:00] "POST /ocr HTTP/1.1" 200 -
+13:21:04 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:21:04] "GET /health HTTP/1.1" 200 -
+13:21:04 [OCR] INFO: 📥 Received file: 31147 bytes. Ext: .png. Header: b'\x89PNG\r\n\x1a\n\x00\x00'
+13:21:04 [OCR] INFO: OCR صفحه 1/1 ...
+13:21:04 [OCR] INFO: ✅ OCR کامل (apple_vision_ocrmac): 4 کاراکتر
+13:21:04 [OCR] INFO: === متن استخراجی ===
+١ ١١
+====================
+13:21:04 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:21:04] "POST /ocr HTTP/1.1" 200 -
+13:23:31 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:23:31] "GET /health HTTP/1.1" 200 -
+13:23:31 [OCR] INFO: 📥 Received file: 31147 bytes. Ext: .png. Header: b'\x89PNG\r\n\x1a\n\x00\x00'
+13:23:31 [OCR] INFO: OCR صفحه 1/1 ...
+13:23:31 [OCR] INFO: ✅ OCR کامل (apple_vision_ocrmac): 4 کاراکتر
+13:23:31 [OCR] INFO: === متن استخراجی ===
+١ ١١
+====================
+13:23:31 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:23:31] "POST /ocr HTTP/1.1" 200 -
+13:24:11 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:24:11] "GET /health HTTP/1.1" 200 -
+13:24:11 [OCR] INFO: 📥 Received file: 170809 bytes. Ext: .jpg. Header: b'\xff\xd8\xff\xe0\x00\x10JFIF'
+13:24:11 [OCR] INFO: OCR صفحه 1/1 ...
+13:24:12 [OCR] INFO: ✅ OCR کامل (apple_vision_ocrmac): 999 کاراکتر
+13:24:12 [OCR] INFO: === متن استخراجی ===
+واركترى كل الان قادس
+معادت اجتاعى نيكرتى زه قوع بجم
+باس تعالى
+برد مكمها موتهت مستدجمت ميكيرى ازجرم اقود قنادر بهادى كند.
+متم مظم وبرك دته امال"
+شماره: ١/٢٢٠/٨٢٢/٩٠١٩
+تاريخ: ٢٢/٠٣/١٣٠٥
+پيوست: دارد
+مديركل محترم آموزش و پرورش استان فارس
+معاون محترم شهر دار و رئيس سازمان فرهنكى،اجتماعى و ورزشى شهر دارى كلانشهر شيراز
+سلام عليكم
+احتراما؛ پيرو دعوتنامه شماره 9019/771/620/1 مورخ 1405/04/17، به پيوست
+صور تجلسه و مصوبات "اولين جلسه تخصصى كميته علمى و اجرايى نظام مراقبت اجتماعى
+دانش آموزان (نماد)"، جهت ملاحظه، اقدام مقتضى و اعلام نتيجه به حضورتان ارسال مى
+كَردد.
+اسميل اكبرى
+سان قتيل من يكر نا مع جم الاكرى العان ندرس
+رونوشت:
+عل الا ال ا من ي مخم لور ياري الارع م عونت أتام و يتظرى أل وقرع ههم فره فضعر
+سركار خائم دكتر خاكى بختياروند معاون محترم امور خانواده معاونت اجتماعى و پيشكَيرى از وقوع جرم قوه قضائيه جهت
+استحضار
+روسا و دادستانهاى محترم حوزه هاى قضايى جهت اطلاع و اقدام مقتضى
+ادرس: شيرار - جهارراه جنجنه، حيابان نارون شمالى، كوجه 13، سمت جب، درب اول، طبفه اول
+fars.scpd@eadl.r الا
+07132271044تلفن:
+====================
+13:24:12 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:24:12] "POST /ocr HTTP/1.1" 200 -
+13:26:32 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:26:32] "GET /health HTTP/1.1" 200 -
+13:26:32 [OCR] INFO: 📥 Received file: 31147 bytes. Ext: .png. Header: b'\x89PNG\r\n\x1a\n\x00\x00'
+13:26:32 [OCR] INFO: OCR صفحه 1/1 ...
+13:26:33 [OCR] INFO: ✅ OCR کامل (apple_vision_ocrmac): 4 کاراکتر
+13:26:33 [OCR] INFO: === متن استخراجی ===
+١ ١١
+====================
+13:26:33 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:26:33] "POST /ocr HTTP/1.1" 200 -

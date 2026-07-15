@@ -242,18 +242,23 @@ def ocr_endpoint():
                 logger.info(f"📥 Received file: {len(img_bytes)} bytes. Ext: {ext}. Header: {img_bytes[:10]}")
                 with open("debug.png", "wb") as f:
                     f.write(img_bytes)
-                
                 # تبدیل تصویر به RGB برای جلوگیری از باگ‌های ocrmac با کانال آلفا/indexed
-                from PIL import Image
-                import io
-                img_pil = Image.open(io.BytesIO(img_bytes))
-                if img_pil.mode != 'RGB':
-                    img_pil = img_pil.convert('RGB')
-                
-                tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False, prefix='ocr_in_')
-                img_pil.save(tmp.name, format='JPEG', quality=95)
-                tmp.close()
-                ext = '.jpg'
+                if not img_bytes.startswith(b'%PDF'):
+                    from PIL import Image
+                    import io
+                    img_pil = Image.open(io.BytesIO(img_bytes))
+                    if img_pil.mode != 'RGB':
+                        img_pil = img_pil.convert('RGB')
+                    
+                    tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False, prefix='ocr_in_')
+                    img_pil.save(tmp.name, format='JPEG', quality=95)
+                    tmp.close()
+                    ext = '.jpg'
+                else:
+                    tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False, prefix='ocr_in_')
+                    tmp.write(img_bytes)
+                    tmp.close()
+                    ext = '.pdf'
                 
             except Exception as e:
                 return jsonify({"success": False, "error": f"خطا در پردازش تصویر: {e}"}), 400

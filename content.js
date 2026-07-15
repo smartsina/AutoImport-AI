@@ -379,7 +379,21 @@ async function startFormAutoImport() {
     try {
         // مرحله ۱: خواندن اطلاعات موجود فرم
         updatePanelStep(1, 'loading', 'در حال خواندن اطلاعات فرم...');
-        const existingData = readExistingFormData();
+        let existingData = readExistingFormData();
+        
+        // ادغام با داده‌های ایمیل (اگر وجود داشته باشد) تا اطلاعات از دست نرود
+        try {
+            const pending = await chrome.storage.local.get('autoimport_pending');
+            if (pending && pending.autoimport_pending && pending.autoimport_pending.data) {
+                const em = pending.autoimport_pending.data;
+                existingData.sender = em.sender || existingData.sender;
+                existingData.senderEmail = em.senderEmail || existingData.senderEmail;
+                existingData.subject = em.subject || existingData.subject;
+                existingData.originNo = em.originNo || existingData.originNo;
+                existingData.description = em.description || existingData.description;
+            }
+        } catch(e) {}
+        
         updatePanelStep(1, 'done', 'اطلاعات فرم خوانده شد ✓');
 
         // مرحله ۲: فقط گیرنده (کد ۱۰ + مدیریت اداره کل) را پر کن و ذخیره کن
@@ -389,6 +403,9 @@ async function startFormAutoImport() {
         updatePanelStep(2, 'done', 'ثبت اولیه موفق ✓');
 
         // مرحله ۳: OCR تصویر نامه (img-scanned یا منابع دیگر)
+        updatePanelStep(3, 'loading', 'در حال صبر برای بارگذاری تصویر...');
+        await new Promise(resolve => setTimeout(resolve, 2500)); // صبر برای لود شدن عکس
+        
         updatePanelStep(3, 'loading', 'در حال خواندن تصویر نامه...');
         let letterData = { ...existingData };
         let analysisSuccess = false;
@@ -857,14 +874,17 @@ function getLetterImageUrl() {
     for (const doc of allDocs()) {
         for (const img of doc.querySelectorAll('img')) {
             const src = img.src || '';
-            if ((src.includes('WriteBuffer') || src.includes('OutputStream') || src.includes('invokeCode') || src.includes('farsedu')) &&
-                img.naturalWidth > 50) return src;
+            // باید تصویر بزرگ باشد (حداقل 400 پیکسل عرض) تا مطمئن شویم نامه است نه لوگو
+            if ((src.includes('WriteBuffer') || src.includes('OutputStream') || src.includes('invokeCode') || src.includes('GetFile.aspx')) &&
+                img.naturalWidth > 400 && img.naturalHeight > 400) {
+                return src;
+            }
         }
 
         const bodyImg = doc.querySelector('body > img');
-        if (bodyImg && bodyImg.src) return bodyImg.src;
+        if (bodyImg && bodyImg.naturalWidth > 400 && bodyImg.src) return bodyImg.src;
 
-        // بررسی iframe‌ها برای src آنها
+        // بررسی iframe‌ها برای src آنها (برای PDFها)
         for (const iframe of doc.querySelectorAll('iframe')) {
             const fsrc = iframe.src || iframe.getAttribute('src') || '';
             if (fsrc.includes('WriteBuffer') || fsrc.includes('OutputStream') || fsrc.includes('invokeCode')) {
