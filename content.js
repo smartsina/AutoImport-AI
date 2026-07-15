@@ -402,39 +402,98 @@ async function startFormAutoImport() {
         await clickSave();
         updatePanelStep(2, 'done', 'ثبت اولیه موفق ✓');
 
-        // مرحله ۳: OCR تصویر نامه (img-scanned یا منابع دیگر)
-        updatePanelStep(3, 'loading', 'در حال صبر برای بارگذاری تصویر...');
-        await new Promise(resolve => setTimeout(resolve, 2500)); // صبر برای لود شدن عکس
-        
-        updatePanelStep(3, 'loading', 'در حال خواندن تصویر نامه...');
-        let letterData = { ...existingData };
+        // مرحله ۳: OCR همه فایل‌های ضمیمه
+        updatePanelStep(3, 'loading', 'در حال یافتن فایل‌های ضمیمه...');
+        await new Promise(resolve => setTimeout(resolve, 2000)); // صبر برای لود شدن فایل‌ها
+
+        const allFileUrls = getAllFileUrls();
+        aiLogger.info(`📂 Found ${allFileUrls.length} file(s):`, allFileUrls.map(f => f.label));
+
+        let combinedOcrText = '';
         let analysisSuccess = false;
 
-        // ابتدا تلاش برای تصویر اسکن شده (img-scanned)
-        const imageUrl = getLetterImageUrl();
-        const pageText = extractTextFromPage();
+        if (allFileUrls.length > 0) {
+            for (let fi = 0; fi < allFileUrls.length; fi++) {
+                const { url, label, ext } = allFileUrls[fi];
+                updatePanelStep(3, 'loading', `در حال دانلود ${label} (${fi+1}/${allFileUrls.length})...`);
+                try {
+                    aiLogger.info(`🔗 Fetching ${label} from:`, url.substring(0, 120));
+                    const fileRes = await fetch(url, { credentials: 'include', headers: { 'Accept': '*/*' } });
+                    aiLogger.info(`📬 ${label} response: HTTP ${fileRes.status}, type:`, fileRes.headers.get('content-type') || 'unknown');
+                    if (!fileRes.ok) throw new Error(`HTTP ${fileRes.status}`);
+                    const buf = await fileRes.arrayBuffer();
+                    const bytes = new Uint8Array(buf);
+                    aiLogger.info(`📦 ${label} size: ${(buf.byteLength/1024).toFixed(1)} KB, first bytes:`, 
+                        Array.from(bytes.slice(0, 8)).map(b => b.toString(16).padStart(2,'0')).join(' '));
 
-        if (imageUrl) {
-            updatePanelStep(3, 'loading', 'در حال OCR و آنالیز تصویر نامه...');
-            try {
-                const ocrRes = await chrome.runtime.sendMessage({
-                    action: 'ocrAndAnalyzeLetter',
-                    payload: { imageUrl, baseData: existingData }
-                });
-                if (ocrRes.success) {
-                    letterData = mergeData(existingData, ocrRes.data);
-                    updatePanelStep(3, 'done', 'OCR نامه کامل شد ✓');
-                    showExtractedData(letterData);
-                    analysisSuccess = true;
-                } else {
-                    aiLogger.warn('OCR error:', ocrRes.error);
-                    updatePanelStep(3, 'error', 'خطا OCR: ' + ocrRes.error);
+                    // بررسی اینکه فایل HTML نباشد (redirect/login)
+                    const headerStr = String.fromCharCode(...bytes.slice(0, 100)).trim().toLowerCase();
+                    if (headerStr.includes('<!doctype') || headerStr.startsWith('<html') || headerStr.includes('<head>')) {
+                        aiLogger.warn(`${label}: سرور HTML برگرداند (redirect/login). اول 200 کاراکتر:`, headerStr.substring(0, 200));
+                        continue;
+                    }
+
+                    aiLogger.info(`✅ ${label} downloaded: ${(buf.byteLength/1024).toFixed(1)} KB — binary file confirmed`);
+
+                    // تبدیل به base64 به صورت chunk‌ای
+                    let bin = '';
+                    const chunk = 8192;
+                    for (let i = 0; i < bytes.byteLength; i += chunk) {
+                        bin += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.byteLength)));
+                    }
+                    const b64 = `data:application/octet-stream;base64,${btoa(bin)}`;
+
+                    updatePanelStep(3, 'loading', `در حال OCR ${label}...`);
+                    const ocrRes = await chrome.runtime.sendMessage({
+                        action: 'ocrFileOnly',
+                        payload: { base64: b64 }
+                    });
+
+                    if (ocrRes && ocrRes.success && ocrRes.text && ocrRes.text.trim().length > 10) {
+                        aiLogger.info(`✅ ${label} OCR text: ${ocrRes.text.length} chars`);
+                        combinedOcrText += (combinedOcrText ? '\n\n--- ' + label + ' ---\n' : '') + ocrRes.text.trim();
+                    } else {
+                        aiLogger.warn(`${label} OCR failed:`, ocrRes?.error || 'empty');
+                    }
+                } catch(e) {
+                    aiLogger.warn(`${label} error:`, e.message);
                 }
-            } catch(e) {
-                aiLogger.warn('OCR exception:', e.message);
             }
         }
 
+        // اگر متن OCR داریم، به AI بفرست
+        if (combinedOcrText.trim().length > 30) {
+            updatePanelStep(3, 'loading', 'در حال آنالیز متن توسط هوش مصنوعی...');
+            try {
+                const ocrRes = await chrome.runtime.sendMessage({
+                    action: 'ocrWithBase64',
+                    payload: { base64: null, rawText: combinedOcrText, baseData: existingData }
+                });
+                if (ocrRes.success) {
+                    letterData = mergeData(existingData, ocrRes.data);
+                    // متن خام OCR همیشه در توضیحات باشد
+                    if (!letterData.description || letterData.description.trim().length < 20) {
+                        letterData.description = combinedOcrText;
+                    }
+                    updatePanelStep(3, 'done', `OCR ${allFileUrls.length} فایل کامل شد ✓`);
+                    showExtractedData(letterData);
+                    analysisSuccess = true;
+                } else {
+                    // اگر AI نتوانست، حداقل متن OCR را در توضیحات بگذار
+                    letterData.description = combinedOcrText;
+                    updatePanelStep(3, 'done', 'OCR انجام شد، متن در توضیحات ✓');
+                    showExtractedData(letterData);
+                    analysisSuccess = true;
+                }
+            } catch(e) {
+                aiLogger.warn('Analysis error:', e.message);
+                letterData.description = combinedOcrText;
+                analysisSuccess = true;
+            }
+        }
+
+        // fallback: متن موجود در صفحه
+        const pageText = extractTextFromPage();
         if (!analysisSuccess && pageText && pageText.length > 100) {
             updatePanelStep(3, 'loading', 'متن نامه یافت شد، در حال آنالیز...');
             try {
@@ -454,7 +513,7 @@ async function startFormAutoImport() {
         }
 
         if (!analysisSuccess) {
-            updatePanelStep(3, 'done', 'تصویری پیدا نشد — از اطلاعات فعلی استفاده می‌شود ✓');
+            updatePanelStep(3, 'done', 'فایل قابل OCR یافت نشد — از اطلاعات فعلی استفاده می‌شود ✓');
         }
 
         // مرحله ۴: پر کردن تمام فیلدها و ذخیره نهایی
@@ -855,43 +914,165 @@ function extractTextFromPage() {
 
 
 // ===================================================
-// ۸. پیدا کردن تصویر نامه (OCR Source)
+// ۸. پیدا کردن همه فایل‌های ضمیمه نامه
+// ===================================================
+const SKIP_EXTENSIONS = new Set([
+    '.zip', '.rar', '.7z', '.tar', '.gz',       // فشرده
+    '.xls', '.xlsx', '.xlsm', '.ods',           // اکسل
+    '.doc', '.docx', '.odt',                    // ورد
+    '.ppt', '.pptx',                            // پاورپوینت
+    '.exe', '.msi', '.apk',                     // اجرایی
+    '.mp4', '.mp3', '.avi', '.mkv',             // رسانه
+]);
+
+function getAllFileUrls() {
+    const results = [];
+    const seen = new Set();
+
+    // تابع کمکی برای ساخت URL کامل
+    function resolveUrl(href, baseDoc) {
+        if (!href) return null;
+        try {
+            if (href.startsWith('http')) return href;
+            // از origin صفحه‌ای که iframe در آن است
+            const base = baseDoc.location?.href || window.location.href;
+            return new URL(href, base).href;
+        } catch(e) { return null; }
+    }
+
+    function scanDoc(doc, depth = 0) {
+        if (depth > 5 || !doc) return;
+
+        // ۱. FileTabContent_N — فایل‌های ضمیمه اصلی
+        for (const iframe of doc.querySelectorAll('iframe[id^="FileTabContent_"]')) {
+            // attribute "url" اولویت دارد چون ticket تازه دارد
+            const rawUrl = iframe.getAttribute('url') || iframe.getAttribute('src') || iframe.src || '';
+            const fext   = (iframe.getAttribute('fileextention') || '').toLowerCase();
+            const idx    = iframe.getAttribute('index') || iframe.id.replace('FileTabContent_', '');
+            const label  = `فایل ${toFarsiDigits(idx)}`;
+
+            if (!rawUrl || seen.has(rawUrl)) continue;
+            if (SKIP_EXTENSIONS.has(fext)) {
+                aiLogger.info(`⏭ ${label} skipped (${fext})`);
+                continue;
+            }
+
+            const fullUrl = resolveUrl(rawUrl, doc);
+            if (!fullUrl) continue;
+            seen.add(rawUrl);
+            aiLogger.info(`📎 Found ${label}:`, fullUrl.substring(0, 80));
+            results.push({ url: fullUrl, label, ext: fext, index: parseInt(idx) || 99 });
+        }
+
+        // ۲. iframe های OutputStream/WriteBuffer/GetFile عمومی
+        for (const iframe of doc.querySelectorAll('iframe:not([id^="FileTabContent_"])')) {
+            const rawUrl = iframe.getAttribute('url') || iframe.getAttribute('src') || iframe.src || '';
+            if (!rawUrl || seen.has(rawUrl)) continue;
+
+            const isFile = rawUrl.includes('WriteBuffer') || rawUrl.includes('OutputStream') ||
+                           rawUrl.includes('GetFile') || rawUrl.includes('ShowFile') ||
+                           rawUrl.includes('DF.aspx') || rawUrl.includes('fileId=');
+            if (!isFile) continue;
+
+            const fullUrl = resolveUrl(rawUrl, doc);
+            if (!fullUrl) continue;
+            seen.add(rawUrl);
+            aiLogger.info(`📎 Found general file iframe:`, fullUrl.substring(0, 80));
+            results.push({ url: fullUrl, label: 'فایل', ext: '', index: 88 });
+        }
+
+        // ۳. img-scanned
+        const scannedImg = doc.getElementById('img-scanned');
+        if (scannedImg && scannedImg.src && scannedImg.src.length > 100 && !seen.has(scannedImg.src)) {
+            seen.add(scannedImg.src);
+            results.push({ url: scannedImg.src, label: 'تصویر اسکن', ext: '.png', index: 0 });
+        }
+
+        // ۴. جستجوی عمیق‌تر در iframe های فرزند
+        for (const iframe of doc.querySelectorAll('iframe')) {
+            try {
+                const childDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                if (childDoc && childDoc !== doc) scanDoc(childDoc, depth + 1);
+            } catch(e) {} // cross-origin silently ignored
+        }
+    }
+
+    // شروع از بالاترین سطح
+    try {
+        scanDoc(window.top.document);
+    } catch(e) {
+        scanDoc(document);
+    }
+
+    return results.sort((a, b) => a.index - b.index);
+}
+
+
+// ===================================================
+// ۸. پیدا کردن URL تصویر نامه (backward compat)
 // ===================================================
 function getLetterImageUrl() {
-    // اولویت ۱: img با id="img-scanned" (تصویر مستقیم base64 یا URL)
+    // اولویت ۱: img با id="img-scanned" (تصویر مستقیم)
     for (const doc of allDocs()) {
         const scannedImg = doc.getElementById('img-scanned');
         if (scannedImg) {
             const src = (scannedImg.src || '').trim();
-            if (src.length > 200) { // حداقل اندازه معنی‌دار
-                aiLogger.info('img-scanned found, length:', src.length, 'type:', src.substring(0, 30));
+            if (src.length > 200) {
+                aiLogger.info('img-scanned found, length:', src.length);
                 return src;
             }
         }
     }
 
-    // اولویت ۲: img با URL اتوماسیون (WriteBuffer, OutputStream, ...)
+    // اولویت ۲: iframe که محتوایش PDF/WriteBuffer است (رایج‌ترین در BPMS)
+    for (const doc of allDocs()) {
+        for (const iframe of doc.querySelectorAll('iframe')) {
+            const fsrc = iframe.src || iframe.getAttribute('src') || '';
+            if (fsrc && (
+                fsrc.includes('WriteBuffer') ||
+                fsrc.includes('OutputStream') ||
+                fsrc.includes('invokeCode') ||
+                fsrc.includes('GetFile') ||
+                fsrc.includes('ShowFile') ||
+                fsrc.includes('ViewFile') ||
+                fsrc.includes('DownloadFile') ||
+                fsrc.includes('fileId=') ||
+                fsrc.includes('FileId=')
+            )) {
+                const fullUrl = new URL(fsrc, window.location.href).href;
+                aiLogger.info('WriteBuffer/PDF iframe found:', fullUrl.substring(0, 80));
+                return fullUrl;
+            }
+        }
+    }
+
+    // اولویت ۳: لینک‌های فایل در sidebar (فایل ۱، فایل ۲، ...)
+    for (const doc of allDocs()) {
+        const fileLinks = doc.querySelectorAll('a[href*="WriteBuffer"], a[href*="GetFile"], a[href*="OutputStream"], a[href*="ShowFile"], a[href*="fileId"]');
+        for (const link of fileLinks) {
+            const href = link.href || '';
+            if (href) {
+                aiLogger.info('File link found:', href.substring(0, 80));
+                return href;
+            }
+        }
+    }
+
+    // اولویت ۴: تصویر بزرگ که واقعاً نامه باشد (حداقل 400px)
     for (const doc of allDocs()) {
         for (const img of doc.querySelectorAll('img')) {
             const src = img.src || '';
-            // باید تصویر بزرگ باشد (حداقل 400 پیکسل عرض) تا مطمئن شویم نامه است نه لوگو
-            if ((src.includes('WriteBuffer') || src.includes('OutputStream') || src.includes('invokeCode') || src.includes('GetFile.aspx')) &&
-                img.naturalWidth > 400 && img.naturalHeight > 400) {
+            if (img.naturalWidth > 400 && img.naturalHeight > 400 && src && !src.includes('icon') && !src.includes('logo')) {
+                aiLogger.info('Large image found:', src.substring(0, 80), img.naturalWidth + 'x' + img.naturalHeight);
                 return src;
             }
         }
 
+        // body > img مستقیم
         const bodyImg = doc.querySelector('body > img');
-        if (bodyImg && bodyImg.naturalWidth > 400 && bodyImg.src) return bodyImg.src;
-
-        // بررسی iframe‌ها برای src آنها (برای PDFها)
-        for (const iframe of doc.querySelectorAll('iframe')) {
-            const fsrc = iframe.src || iframe.getAttribute('src') || '';
-            if (fsrc.includes('WriteBuffer') || fsrc.includes('OutputStream') || fsrc.includes('invokeCode')) {
-                return new URL(fsrc, window.location.href).href;
-            }
-        }
+        if (bodyImg && bodyImg.naturalWidth > 200 && bodyImg.src) return bodyImg.src;
     }
+
     return null;
 }
 

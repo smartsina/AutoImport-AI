@@ -142,6 +142,22 @@ def ocr_tesseract(image_path):
     return text.strip()
 
 
+def filter_watermark(text: str) -> str:
+    """حذف واترمارک‌های نام کاربری از متن OCR"""
+    import re
+    # الگوهای واترمارک معمول در سامانه (نام کاربر به صورت مایل/کم‌رنگ چاپ می‌شود)
+    watermark_patterns = [
+        r'محمد\s*رضا\s*حسنی\s*پور',
+        r'محمدرضا\s*حسنیپور',
+        r'حسنی\s*پور',
+    ]
+    for pattern in watermark_patterns:
+        text = re.sub(pattern, '', text, flags=re.UNICODE | re.IGNORECASE)
+    # حذف خطوط خالی اضافه
+    lines = [l for l in text.splitlines() if l.strip()]
+    return '\n'.join(lines)
+
+
 def run_ocr(image_path):
     errors = []
     for name, fn in [
@@ -154,6 +170,7 @@ def run_ocr(image_path):
             continue
         try:
             text = fn(image_path)
+            text = filter_watermark(text)
             if text.strip():
                 return {"text": text, "method": name}
         except Exception as e:
@@ -217,71 +234,129 @@ def health():
     return jsonify({"status": "ok", "engines": engines})
 
 
+def detect_file_type(data: bytes) -> str:
+    """تشخیص نوع فایل با بررسی magic bytes"""
+    if data[:4] == b'%PDF':
+        return 'pdf'
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'png'
+    if data[:2] == b'\xff\xd8':
+        return 'jpg'
+    if data[:4] in (b'II*\x00', b'MM\x00*'):
+        return 'tiff'
+    # WriteBuffer/OWA معمولاً PDF هستند اما بدون هدر صحیح
+    # اگر هیچکدام نشد، فرض می‌کنیم PDF است (WriteBuffer)
+    if b'%PDF' in data[:1024]:  # هدر PDF در جای دیگری
+        return 'pdf'
+    # تلاش آخر: ببین آیا قابل پارس به PDF است
+    return 'unknown_try_pdf'
+
+
+def extract_pdf_text(pdf_path: str) -> str:
+    """استخراج متن از PDF متنی (بدون نیاز به OCR)"""
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(pdf_path)
+        texts = []
+        for page in doc:
+            txt = page.get_text("text").strip()
+            if txt:
+                texts.append(txt)
+        doc.close()
+        return '\n\n'.join(texts)
+    except Exception as e:
+        logger.warning(f"PDF text extraction failed: {e}")
+        return ''
+
+
 @app.route('/ocr', methods=['POST'])
 def ocr_endpoint():
     tmps = []
     try:
         data = request.get_json(force=True, silent=True) or {}
         image_paths = []
+        extracted_text = ''  # متن مستقیم از PDF متنی
 
-        # base64 / data URI
+        # ── base64 / data URI ─────────────────────────────────────────
         raw = data.get('image_base64') or data.get('image_url') or data.get('base64') or ''
         if raw:
             raw = str(raw).strip()
-            ext = '.jpg'
+            # حذف data-URI prefix
             if raw.startswith('data:'):
                 ci = raw.index(',')
-                hdr = raw[:ci].lower()
                 raw = raw[ci + 1:]
-                if 'png' in hdr:  ext = '.png'
-                elif 'pdf' in hdr: ext = '.pdf'
-                elif 'tif' in hdr: ext = '.tiff'
             raw = raw.replace('\n','').replace('\r','').replace(' ','').replace('\t','')
+
             try:
                 img_bytes = base64.b64decode(raw, validate=False)
-                logger.info(f"📥 Received file: {len(img_bytes)} bytes. Ext: {ext}. Header: {img_bytes[:10]}")
-                with open("debug.png", "wb") as f:
+            except Exception as e:
+                return jsonify({"success": False, "error": f"base64 نامعتبر: {e}"}), 400
+
+            file_type = detect_file_type(img_bytes)
+            logger.info(f"📥 Received: {len(img_bytes)} bytes, detected: {file_type}")
+
+            # ذخیره debug
+            try:
+                with open(os.path.join(os.path.dirname(__file__), "debug_received"), "wb") as f:
                     f.write(img_bytes)
-                # تبدیل تصویر به RGB برای جلوگیری از باگ‌های ocrmac با کانال آلفا/indexed
-                if not img_bytes.startswith(b'%PDF'):
+            except: pass
+
+            if file_type in ('pdf', 'unknown_try_pdf'):
+                # ذخیره به عنوان PDF
+                tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False, prefix='ocr_in_')
+                tmp.write(img_bytes); tmp.close(); tmps.append(tmp.name)
+
+                # اول تلاش برای استخراج متن مستقیم
+                direct_text = extract_pdf_text(tmp.name)
+                if direct_text and len(direct_text.strip()) > 20:
+                    logger.info(f"✅ PDF متنی — متن مستقیم استخراج شد: {len(direct_text)} کاراکتر")
+                    logger.info(f"=== متن استخراجی ===\n{direct_text}\n====================")
+                    return jsonify({"success": True, "text": direct_text, "method": "pdf_text", "pages": 1})
+
+                # PDF تصویری: تبدیل به عکس و OCR
+                logger.info("PDF تصویری است، تبدیل به تصویر برای OCR...")
+                pages = pdf_to_images(tmp.name)
+                tmps.extend(pages); image_paths.extend(pages)
+
+            else:
+                # تصویر: تبدیل به RGB JPEG
+                try:
                     from PIL import Image
-                    import io
-                    img_pil = Image.open(io.BytesIO(img_bytes))
+                    import io as _io
+                    img_pil = Image.open(_io.BytesIO(img_bytes))
                     if img_pil.mode != 'RGB':
                         img_pil = img_pil.convert('RGB')
-                    
+                    w, h = img_pil.size
+                    logger.info(f"🖼 تصویر: {w}×{h}, mode={img_pil.mode}")
                     tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False, prefix='ocr_in_')
                     img_pil.save(tmp.name, format='JPEG', quality=95)
-                    tmp.close()
-                    ext = '.jpg'
-                else:
-                    tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False, prefix='ocr_in_')
-                    tmp.write(img_bytes)
-                    tmp.close()
-                    ext = '.pdf'
-                
-            except Exception as e:
-                return jsonify({"success": False, "error": f"خطا در پردازش تصویر: {e}"}), 400
-            
-            tmps.append(tmp.name)
-            if img_bytes.startswith(b'%PDF'):
-                pages = pdf_to_images(tmp.name); tmps.extend(pages); image_paths.extend(pages)
-            else:
-                image_paths.append(tmp.name)
+                    tmp.close(); tmps.append(tmp.name)
+                    image_paths.append(tmp.name)
+                except Exception as e:
+                    return jsonify({"success": False, "error": f"خطا در پردازش تصویر: {e}"}), 400
 
-        # مسیر فایل
+        # ── مسیر فایل مستقیم ──────────────────────────────────────────
         elif 'file_path' in data:
             fp = data['file_path']
             if not os.path.exists(fp):
                 return jsonify({"success": False, "error": f"فایل پیدا نشد: {fp}"}), 404
-            ext = Path(fp).suffix.lower()
-            if ext == '.pdf':
+
+            with open(fp, 'rb') as fh:
+                file_bytes = fh.read()
+            file_type = detect_file_type(file_bytes)
+
+            if file_type in ('pdf', 'unknown_try_pdf'):
+                direct_text = extract_pdf_text(fp)
+                if direct_text and len(direct_text.strip()) > 20:
+                    logger.info(f"✅ PDF متنی: {len(direct_text)} کاراکتر")
+                    return jsonify({"success": True, "text": direct_text, "method": "pdf_text", "pages": 1})
                 pages = pdf_to_images(fp); tmps.extend(pages); image_paths.extend(pages)
             else:
                 image_paths.append(fp)
         else:
             return jsonify({"success": False, "error": "image_base64, image_url یا file_path لازم است"}), 400
 
+        # ── OCR تصویرها ────────────────────────────────────────────────
         if not image_paths:
             return jsonify({"success": False, "error": "تصویری برای پردازش نبود"}), 400
 
@@ -301,7 +376,8 @@ def ocr_endpoint():
         return jsonify({"success": True, "text": full, "method": method, "pages": len(image_paths)})
 
     except Exception as e:
-        logger.error(f"❌ {e}")
+        import traceback
+        logger.error(f"❌ {e}\n{traceback.format_exc()}")
         return jsonify({"success": False, "error": str(e)}), 500
     finally:
         for f in tmps:
@@ -311,9 +387,12 @@ def ocr_endpoint():
 
 if __name__ == '__main__':
     logger.info("=" * 55)
-    logger.info("  AutoImport AI  -  سرور OCR محلی  v1.0")
+    logger.info("  AutoImport AI  -  سرور OCR محلی  v2.0")
     logger.info("=" * 55)
     init_engines()
     port = int(os.environ.get('OCR_PORT', 5151))
     logger.info(f"🚀  http://127.0.0.1:{port}")
     app.run(host='127.0.0.1', port=port, debug=False, threaded=True)
+
+
+

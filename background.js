@@ -100,6 +100,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         handleOcrAndAnalyze(request.payload, sendResponse);
         return true;
     }
+    if (request.action === 'ocrWithBase64') {
+        // content.js قبلاً فایل را دانلود کرده و base64 آن را فرستاده
+        handleOcrWithBase64(request.payload, sendResponse);
+        return true;
+    }
+    if (request.action === 'ocrFileOnly') {
+        // فقط OCR بدون آنالیز AI برای یک فایل خاص
+        handleOcrFileOnly(request.payload, sendResponse);
+        return true;
+    }
     if (request.action === 'injectMainWorldConfirm') {
         handleInjectMainWorldConfirm(sender.tab?.id, sendResponse);
         return true;
@@ -282,6 +292,59 @@ async function tryLocalOcr(imageUrl) {
     }
 }
 
+// ===== Handler: فقط OCR یک فایل (بدون AI) =====
+async function handleOcrFileOnly(payload, sendResponse) {
+    if (!payload || !payload.base64) {
+        sendResponse({ success: false, error: 'base64 داده نشد' });
+        return;
+    }
+    try {
+        const text = await tryLocalOcr(payload.base64);
+        if (text && text.trim().length > 5) {
+            sendResponse({ success: true, text });
+        } else {
+            sendResponse({ success: false, error: 'متنی یافت نشد' });
+        }
+    } catch (err) {
+        logger.error('handleOcrFileOnly error:', err);
+        sendResponse({ success: false, error: err.message });
+    }
+}
+
+// ===== Handler: OCR با base64 که content.js دانلود کرده =====
+async function handleOcrWithBase64(payload, sendResponse) {
+    if (!payload || (!payload.base64 && !payload.rawText)) {
+        sendResponse({ success: false, error: 'base64 یا rawText داده نشد' });
+        return;
+    }
+    try {
+        if (!currentConfig) await loadConfig();
+        
+        let localText = payload.rawText || null;
+        
+        if (!localText && payload.base64) {
+            localText = await tryLocalOcr(payload.base64);
+        }
+        
+        if (!localText || localText.trim().length < 10) {
+            sendResponse({ success: false, error: 'OCR محلی ناموفق بود (متنی یافت نشد)' });
+            return;
+        }
+        logger.info('✅ ocrWithBase64 text length:', localText.length);
+        const structured = await analyzeTextOnly(localText, payload.baseData || {});
+        if (!structured) {
+            sendResponse({ success: false, error: 'خطا در آنالیز ساختار نامه' });
+            return;
+        }
+        structured.rawText = localText;
+        applyAddressBookMatch(structured, payload.baseData || {});
+        sendResponse({ success: true, data: structured });
+    } catch (err) {
+        logger.error('handleOcrWithBase64 error:', err);
+        sendResponse({ success: false, error: err.message });
+    }
+}
+
 // ===== Handler: OCR تصویر + آنالیز (دو مرحله‌ای) =====
 async function handleOcrAndAnalyze(payload, sendResponse) {
     if (!payload) {
@@ -299,50 +362,43 @@ async function handleOcrAndAnalyze(payload, sendResponse) {
             logger.info('Using pre-extracted text, length:', payload.extractedText.length);
             rawText = payload.extractedText;
         } else if (payload.imageUrl) {
-            logger.info('Processing image, url-prefix:', payload.imageUrl.substring(0, 50));
+            logger.info('Processing file, url prefix:', payload.imageUrl.substring(0, 80));
 
-            let imageBase64 = null;
-            let imageMimeType = 'image/jpeg';
-            let finalDataUrl = payload.imageUrl;
+            let finalDataUrl = null;
 
-            // دریافت تصویر/PDF و تبدیل به base64 اگر URL است
             if (payload.imageUrl.startsWith('data:')) {
+                // already a data URI
                 finalDataUrl = payload.imageUrl;
-                const commaIdx = payload.imageUrl.indexOf(',');
-                if (commaIdx !== -1) {
-                    const header = payload.imageUrl.substring(0, commaIdx);
-                    const mimeMatch = header.match(/data:([^;]+)/);
-                    if (mimeMatch) imageMimeType = mimeMatch[1];
-                    imageBase64 = payload.imageUrl.substring(commaIdx + 1).replace(/\s+/g, '');
-                } else {
-                    sendResponse({ success: false, error: 'فرمت data URI نامعتبر است' });
-                    return;
-                }
+                logger.info('Using data URI directly, length:', payload.imageUrl.length);
             } else {
+                // دریافت فایل از URL سایت (با cookie برای احراز هویت)
                 try {
-                    logger.info('Fetching image/PDF from URL with credentials...');
+                    logger.info('Fetching file from URL with credentials...');
                     const imgRes = await fetch(payload.imageUrl, {
                         credentials: 'include',
-                        headers: { 'Accept': 'image/*,application/pdf,*/*' }
+                        headers: { 'Accept': '*/*' }
                     });
-                    if (!imgRes.ok) throw new Error(`Fetch error: ${imgRes.status}`);
-                    const blob = await imgRes.blob();
-                    imageMimeType = blob.type || 'image/jpeg';
-                    const buf = await blob.arrayBuffer();
+                    if (!imgRes.ok) throw new Error(`Fetch ${imgRes.status}: ${imgRes.statusText}`);
+                    const buf = await imgRes.arrayBuffer();
                     const bytes = new Uint8Array(buf);
+
+                    // تبدیل به base64 (بدون تعیین MIME - سرور خودش نوع را تشخیص می‌دهد)
                     let bin = '';
-                    for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
-                    imageBase64 = btoa(bin);
-                    finalDataUrl = `data:${imageMimeType};base64,${imageBase64}`;
-                    logger.info(`Loaded from URL: ${(buf.byteLength / 1024).toFixed(0)} KB, type=${imageMimeType}`);
+                    const chunk = 8192;
+                    for (let i = 0; i < bytes.byteLength; i += chunk) {
+                        bin += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.byteLength)));
+                    }
+                    const b64 = btoa(bin);
+                    finalDataUrl = `data:application/octet-stream;base64,${b64}`;
+                    logger.info(`Fetched: ${(buf.byteLength / 1024).toFixed(1)} KB, sending to local OCR`);
                 } catch (fetchErr) {
-                    logger.error('Image fetch failed:', fetchErr);
-                    sendResponse({ success: false, error: 'خطا در دریافت تصویر نامه: ' + fetchErr.message });
+                    logger.error('File fetch failed:', fetchErr);
+                    sendResponse({ success: false, error: 'خطا در دریافت فایل نامه: ' + fetchErr.message });
                     return;
                 }
             }
 
-            // فقط استفاده از سرور OCR محلی
+            // ارسال به سرور OCR محلی
             const localText = await tryLocalOcr(finalDataUrl);
             if (localText) {
                 logger.info('✅ Local OCR succeeded, length:', localText.length);
@@ -484,7 +540,14 @@ ${isFully ? 'توجه: اطلاعات پایه پر شده است. وظیفه ش
     if (!res.ok) throw new Error(`Text API error: ${res.status}`);
     const data = await res.json();
     const raw  = data.choices?.[0]?.message?.content || '';
-    return parseJSONResponse(raw);
+    const parsed = parseJSONResponse(raw);
+    
+    // اگر AI متنی برای توضیحات استخراج نکرد، مستقیم متن OCR را بگذار
+    if (parsed && (!parsed.description || parsed.description.trim().length < 10)) {
+        parsed.description = text;
+    }
+    
+    return parsed;
 }
 
 function parseJSONResponse(text) {

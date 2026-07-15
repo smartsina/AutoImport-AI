@@ -166,3 +166,129 @@ fars.scpd@eadl.r الا
 ١ ١١
 ====================
 13:26:33 [OCR] INFO: 127.0.0.1 - - [14/Jul/2026 13:26:33] "POST /ocr HTTP/1.1" 200 -
+08:34:09 [OCR] INFO: 127.0.0.1 - - [15/Jul/2026 08:34:09] "GET /health HTTP/1.1" 200 -
+08:34:09 [OCR] INFO: 📥 Received file: 3838 bytes. Ext: .jpg. Header: b'\r\n\r\n<!DOCT'
+08:34:09 [OCR] INFO: 127.0.0.1 - - [15/Jul/2026 08:34:09] "[31m[1mPOST /ocr HTTP/1.1[0m" 400 -
+08:49:11 [OCR] INFO: =======================================================
+08:49:11 [OCR] INFO:   AutoImport AI  -  سرور OCR محلی  v2.0
+08:49:11 [OCR] INFO: =======================================================
+08:49:11 [OCR] INFO: ✅ Apple Vision (ocrmac) آماده است
+08:49:11 [OCR] WARNING: ⚠️  EasyOCR: No module named 'easyocr'
+08:49:11 [OCR] WARNING: ⚠️  Tesseract نصب نشده
+08:49:11 [OCR] INFO: ✅ PyMuPDF (PDF) آماده است
+08:49:11 [OCR] INFO: 📡 موتورهای فعال: apple_vision_ocrmac, pymupdf
+08:49:11 [OCR] INFO: 🚀  http://127.0.0.1:5151
+08:49:11 [OCR] INFO: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5151
+08:49:11 [OCR] INFO: [33mPress CTRL+C to quit[0m
+08:56:13 [OCR] INFO: 127.0.0.1 - - [15/Jul/2026 08:56:13] "GET /health HTTP/1.1" 200 -
+08:56:13 [OCR] INFO: 📥 Received: 314264 bytes, detected: jpg
+08:56:13 [OCR] INFO: 🖼 تصویر: 1588×2246, mode=RGB
+08:56:13 [OCR] INFO: OCR صفحه 1/1 ...
+08:56:14 [OCR] INFO: ✅ OCR کامل (apple_vision_ocrmac): 1109 کاراکتر
+08:56:14 [OCR] INFO: === متن استخراجی ===
+اساندارى فارس
+معاوثت توسعه مديريت ومتابع
+تورى ارامى إدان
+وزارت كثور
+٠٢/٢٣ - ١٢: ٣٣ : ٢٨/
+تاريخ: ١٢٠٥
+شاره: ص ٥٢/٢٠/١٠٨٠٩/١٢٠٥
+موست: دارد
+فوزيت: عادى
+بسمه تعالى
+اقصاد مقا ومتى ورسايه وحدت على واميت على
+اعضاى محترم شوراى ادارى استان
+باسلام واحترام
+به پيوست تصوير نامه شماره 20 / 12297 | 1405 تاريخ 1405 / 04 / 20 مدير كل محترم آموزش
+وپرورش استان موضوع ساماندهى و توسعه مراكز خدمات مراقبتى و آموزشى كودكان زير هفت سال
+ارسال مى شود. با توجه به اينكه كودكستان ها به عنوان مراكز خدماتى غير دولتى تحت نظارت
+آموزش و پرورش، عهده دار خدمات مراقبت، نكهدارى، رشد، پرورش و تربيت كودكان زير 7 سال مى
+باشند، مقرر فرماييد؛ ضمن استفاده از عنوان رسمى كودكستان در مكاتبات واقدامات ادارى، هر كونه
+همكارى واقدام مرتبط با فعاليت اين مراكز، با هماهنكَى اداره كل آموزش و پرورش صورت پذيرد.
+- عليرضا إنصارى
+معاون توسعه هديريت و منابع
+رونوشت :
+- مديران كل محترم واحد هاى ستادى استاندارى براى اطلاع واقدام لازم
+- فرمانداران محترم شهرستان هاى تابعه براى اطلاع واقدام لازم
+- مدير كل محترم آموزش و پرورش استان براى اطلاع و اقدام لازم
+اوس شيرأ-مدان لام صين(ج-امااري فاس-كيش71348-55555 ن: 32355088071-071 32126200-071-32126700 ,بيات: Tarsp.ir
+====================
+08:56:14 [OCR] INFO: 127.0.0.1 - - [15/Jul/2026 08:56:14] "POST /ocr HTTP/1.1" 200 -
+08:59:56 [OCR] INFO: 127.0.0.1 - - [15/Jul/2026 08:59:56] "GET /health HTTP/1.1" 200 -
+08:59:56 [OCR] INFO: 📥 Received: 3838 bytes, detected: unknown_try_pdf
+08:59:56 [OCR] INFO: PDF تصویری است، تبدیل به تصویر برای OCR...
+08:59:56 [OCR] INFO: OCR صفحه 1/1 ...
+08:59:56 [OCR] ERROR: ❌ همه موتورها شکست خوردند: 
+Traceback (most recent call last):
+  File "/Users/sina/Documents/macbook Air/AutoImport-AI/local_ocr/server.py", line 352, in ocr_endpoint
+    res = run_ocr(pre)
+  File "/Users/sina/Documents/macbook Air/AutoImport-AI/local_ocr/server.py", line 162, in run_ocr
+    raise Exception("همه موتورها شکست خوردند: " + " | ".join(errors))
+Exception: همه موتورها شکست خوردند: 
+
+08:59:56 [OCR] INFO: 127.0.0.1 - - [15/Jul/2026 08:59:56] "[35m[1mPOST /ocr HTTP/1.1[0m" 500 -
+09:20:44 [OCR] INFO: =======================================================
+09:20:44 [OCR] INFO:   AutoImport AI  -  سرور OCR محلی  v2.0
+09:20:44 [OCR] INFO: =======================================================
+09:20:44 [OCR] INFO: ✅ Apple Vision (ocrmac) آماده است
+09:20:44 [OCR] WARNING: ⚠️  EasyOCR: No module named 'easyocr'
+09:20:44 [OCR] WARNING: ⚠️  Tesseract نصب نشده
+09:20:44 [OCR] INFO: ✅ PyMuPDF (PDF) آماده است
+09:20:44 [OCR] INFO: 📡 موتورهای فعال: apple_vision_ocrmac, pymupdf
+09:20:44 [OCR] INFO: 🚀  http://127.0.0.1:5151
+09:20:44 [OCR] INFO: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5151
+09:20:44 [OCR] INFO: [33mPress CTRL+C to quit[0m
+09:26:46 [OCR] INFO: 127.0.0.1 - - [15/Jul/2026 09:26:46] "GET /health HTTP/1.1" 200 -
+09:26:46 [OCR] INFO: 📥 Received: 278304 bytes, detected: jpg
+09:26:46 [OCR] INFO: 🖼 تصویر: 1588×2246, mode=RGB
+09:26:46 [OCR] INFO: OCR صفحه 1/1 ...
+09:26:47 [OCR] INFO: ✅ OCR کامل (apple_vision_ocrmac): 901 کاراکتر
+09:26:47 [OCR] INFO: === متن استخراجی ===
+اساندارى فارس
+معاوثت توسعه مديريت ومتابع
+مورى ارامى إمان
+وزارت كثور
+٠٢/ ٢٣ - ١١:٣٧:٢٣/
+ارج: ١٢٠٥
+ثاره: ص٢٠/١٠٧٢٥/١٢٠٥/ءه
+مست: ندارد
+موريت: فورى
+بسمه تعالى
+ملى للياع ملة
+جناب آقاى كرمى
+مدير كل محترم دفتر برنامه ريزى، بودجه وتحول ادارى
+جناب آقاى هاشم پور
+مدير كل محترم دفتر امور شهرى و شوراهاى استاندارى
+جناب آقاى موسوى
+مدير كل محترم دفتر امور اجتماعى وفرهنكى
+جناب آقاى صمدانى
+سريرست محترم اداره كل امور ادارى و مالى
+جناب آقاى دهقان
+سريرست محترم اداره كل محترم روابط عمومى و امور بين الملل
+جناب آقاى فاضلى
+مدير محترم فناورى اطلاعات، امنيت فضاى مجازى و شبكه دولت
+جناب آقاى رئوف
+مدير كل محترم صدا وسيما مركز فارس
+جناب آقاى علوى
+مدير محترم هماهنكى امور فرهنكى و رفاهى زائرين
+جناب آقاى موسوى
+مدير كل محترم اوقاف و أمور خيريه استان
+جناب آقاى بيارى
+مدير كل محترم تعاون، كار و رفاه اجتماعى استان
+أدس: شيراز-يدان لام حتين (ع، اسادارى فارس -كديق دحددة -٨T+٨ ثمن:٠٧١٠ ٢٢٣٥٥٨٨ :/٠٧-٢٨٢٢٧٠ ٩٠+٣٢-٠٨ وب بات: Tarsp.it
+====================
+09:26:47 [OCR] INFO: 127.0.0.1 - - [15/Jul/2026 09:26:47] "POST /ocr HTTP/1.1" 200 -
+09:34:11 [OCR] INFO: =======================================================
+09:34:11 [OCR] INFO:   AutoImport AI  -  سرور OCR محلی  v2.0
+09:34:11 [OCR] INFO: =======================================================
+09:34:11 [OCR] INFO: ✅ Apple Vision (ocrmac) آماده است
+09:34:11 [OCR] WARNING: ⚠️  EasyOCR: No module named 'easyocr'
+09:34:11 [OCR] WARNING: ⚠️  Tesseract نصب نشده
+09:34:11 [OCR] INFO: ✅ PyMuPDF (PDF) آماده است
+09:34:11 [OCR] INFO: 📡 موتورهای فعال: apple_vision_ocrmac, pymupdf
+09:34:11 [OCR] INFO: 🚀  http://127.0.0.1:5151
+09:34:11 [OCR] INFO: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5151
+09:34:11 [OCR] INFO: [33mPress CTRL+C to quit[0m
