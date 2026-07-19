@@ -4,8 +4,8 @@
   "visionModel": "Gemini-3.1-Pro-Preview",
   "visionEndpoint": "https://arvancloudai.ir/gateway/models/Gemini-3.1-Pro-Preview/UNQXd_Rzb7Ou1BpnZZ1jEeTXeBHqy8sivACODCHwBUqhbVjrKdTzIcSdGpp1uSxeIDF3zeWr6u4KHqabA2t_6CjjQJop98kEfxPGyY5q96RlggcfAjyDUpwM7Jz7jJBnbV5k63bNxnZd2A60CZo7NS3yHsArY69cEgO1-oYipBR7XYmBlp3eIlihibIgPH_MMHRkXpF2rz3c40EOywbiWkts1X5WeUqJ_56wDTc6A5RNhRZEJmv2YMevy89AA4uvLbcGdXn4DdH5BnKfE87sqQkC/v1/chat/completions",
 
-  "textModel": "GPT-OSS-120B",
-  "textEndpoint": "https://arvancloudai.ir/gateway/models/GPT-OSS-120B/OZT2qLk7nWeRJCqfkGbouNTadNLT8bRj_sIFZxnPI_E7GsTxfvkk4IMJxHtoVf3d8cumqGUCMrElXK06LB8DCQClBgdTANBwqKqLWdYa9NFvD47eNbvcf02PrnZ_kgqqFRo2uxz4DhM7tGGiui0ywbueZXVrsaHjIl2oAN5oZePQ64IO_Lnx2k_-gZ5i6jmrR07UlLB0FBGLKjl0T6-OMN1fvnIC2T7eobA4R1XPSoUPvFji3V1yvQ/v1/chat/completions",
+  "textModel": "GPT-5-Mini",
+  "textEndpoint": "https://arvancloudai.ir/gateway/models/GPT-5-Mini/WXI7wA4whdH22FTXSd7dHlTl1QHrs4B9PCozcqtlbz_2LfJUi3jKu_vnUJ8wYtFuQtz0o_wM1S32rDvhVY81Af3dytKC1Sq4d5D0WzQo7T2uwNNeDSeQsgC94v51zgouP0t8KkIcXy-kMUtnDrVoAYRZz4W8bF7b-TL-g77yuSdq8_vhcWIZpbat2D7U5vS5DBVeL69YgeHRuy1Awq6aeBy7uhpiW3lTtA-SCkWK3FcObUSkW2rgL1me/v1/chat/completions",
 
   "endpoints": {
     "gemini": "https://arvancloudai.ir/gateway/models/Gemini-3.1-Pro-Preview/UNQXd_Rzb7Ou1BpnZZ1jEeTXeBHqy8sivACODCHwBUqhbVjrKdTzIcSdGpp1uSxeIDF3zeWr6u4KHqabA2t_6CjjQJop98kEfxPGyY5q96RlggcfAjyDUpwM7Jz7jJBnbV5k63bNxnZd2A60CZo7NS3yHsArY69cEgO1-oYipBR7XYmBlp3eIlihibIgPH_MMHRkXpF2rz3c40EOywbiWkts1X5WeUqJ_56wDTc6A5RNhRZEJmv2YMevy89AA4uvLbcGdXn4DdH5BnKfE87sqQkC/v1/chat/completions",

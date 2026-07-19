@@ -44,10 +44,11 @@ async function loadStatus() {
         const res = await chrome.runtime.sendMessage({ action: 'getConfig' });
         if (res.success && res.data) {
             const cfg = res.data;
-            document.getElementById('info-model').textContent =
-                cfg.visionModel || 'Gemini-3.1-Pro-Preview';
-            document.getElementById('info-text-model').textContent =
-                cfg.textModel || cfg.visionModel || '-';
+            const vModelInfo = Object.values(MODEL_OPTIONS).find(m => m.model === cfg.visionModel);
+            const tModelInfo = Object.values(MODEL_OPTIONS).find(m => m.model === cfg.textModel);
+            
+            document.getElementById('info-model').textContent = vModelInfo ? vModelInfo.display : (cfg.visionModel || 'Gemini-3.1-Pro-Preview');
+            document.getElementById('info-text-model').textContent = tModelInfo ? tModelInfo.display : (cfg.textModel || cfg.visionModel || '-');
         }
     } catch (e) { log.error('loadStatus', e); }
 
@@ -80,9 +81,10 @@ async function loadConfigForm() {
         setVal('cfg-ref-name',        cfg.referralPersonName  || 'كلاري محسن');
         setVal('cfg-ref-role',        cfg.referralPersonRole  || 'مدير كل');
 
-        // تنظیم auto-confirm
-        const acRes = await chrome.storage.local.get(['autoimport_autoconfirm']);
-        document.getElementById('cfg-autoconfirm').checked = !!acRes.autoimport_autoconfirm;
+        // تنظیم auto-confirm و auto-close
+        const localSettings = await chrome.storage.local.get(['autoimport_autoconfirm', 'autoimport_autoclose']);
+        document.getElementById('cfg-autoconfirm').checked = !!localSettings.autoimport_autoconfirm;
+        document.getElementById('cfg-autoclose').checked = !!localSettings.autoimport_autoclose;
 
     } catch (e) { log.error('loadConfigForm', e); }
 }
@@ -160,9 +162,13 @@ function setupConfigSave() {
             showMsg('config-msg', '❌ خطا در ذخیره: ' + e.message, 'msg-error');
         }
 
-        // ذخیره auto-confirm
+        // ذخیره auto-confirm و auto-close
         const autoConfirm = document.getElementById('cfg-autoconfirm').checked;
-        await chrome.storage.local.set({ autoimport_autoconfirm: autoConfirm });
+        const autoClose = document.getElementById('cfg-autoclose').checked;
+        await chrome.storage.local.set({ 
+            autoimport_autoconfirm: autoConfirm,
+            autoimport_autoclose: autoClose
+        });
     });
 }
 

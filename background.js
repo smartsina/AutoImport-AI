@@ -23,6 +23,13 @@ async function loadConfig() {
         const stored = await chrome.storage.local.get(['autoimport_config']);
         if (stored.autoimport_config) {
             currentConfig = stored.autoimport_config;
+            // Force upgrade text model to GPT-5-Mini to support 400k context
+            if (currentConfig.textModel === 'GPT-OSS-120B') {
+                currentConfig.textModel = 'GPT-5-Mini';
+                currentConfig.textEndpoint = 'https://arvancloudai.ir/gateway/models/GPT-5-Mini/WXI7wA4whdH22FTXSd7dHlTl1QHrs4B9PCozcqtlbz_2LfJUi3jKu_vnUJ8wYtFuQtz0o_wM1S32rDvhVY81Af3dytKC1Sq4d5D0WzQo7T2uwNNeDSeQsgC94v51zgouP0t8KkIcXy-kMUtnDrVoAYRZz4W8bF7b-TL-g77yuSdq8_vhcWIZpbat2D7U5vS5DBVeL69YgeHRuy1Awq6aeBy7uhpiW3lTtA-SCkWK3FcObUSkW2rgL1me/v1/chat/completions';
+                await chrome.storage.local.set({ autoimport_config: currentConfig });
+                logger.info('Upgraded textModel to GPT-5-Mini in storage');
+            }
             logger.info('Config loaded from storage');
             return;
         }
@@ -100,6 +107,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         handleOcrAndAnalyze(request.payload, sendResponse);
         return true;
     }
+    if (request.action === 'ocrAndAnalyzeMultiple') {
+        handleOcrAndAnalyzeMultiple(request.payload, sendResponse);
+        return true;
+    }
+    if (request.action === 'fetchFileAsBase64') {
+        handleFetchFileAsBase64(request.payload, sendResponse);
+        return true;
+    }
     if (request.action === 'ocrWithBase64') {
         // content.js قبلاً فایل را دانلود کرده و base64 آن را فرستاده
         handleOcrWithBase64(request.payload, sendResponse);
@@ -108,6 +123,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'ocrFileOnly') {
         // فقط OCR بدون آنالیز AI برای یک فایل خاص
         handleOcrFileOnly(request.payload, sendResponse);
+        return true;
+    }
+    if (request.action === 'ocrNativeDownload') {
+        handleOcrNativeDownload(request.payload, sendResponse);
         return true;
     }
     if (request.action === 'injectMainWorldConfirm') {
@@ -311,6 +330,90 @@ async function handleOcrFileOnly(payload, sendResponse) {
     }
 }
 
+// ===== Handler: انتظار برای دانلود بومی و ارسال آدرس آن به سرور پایتون =====
+async function handleOcrNativeDownload(payload, sendResponse) {
+    if (!payload || !payload.startTime) {
+        sendResponse({ success: false, error: 'زمان شروع دانلود داده نشد' });
+        return;
+    }
+    logger.info('⏳ Waiting for native download to complete...', new Date(payload.startTime).toISOString());
+    
+    // جستجوی دوره‌ای تا زمانی که دانلود تمام شود
+    const maxTries = 30; // حداکثر ۳۰ ثانیه
+    let tries = 0;
+    
+    const checkInterval = setInterval(async () => {
+        tries++;
+        try {
+            const dls = await chrome.downloads.search({ 
+                orderBy: ['-startTime'], 
+                limit: 10 
+            });
+            
+            // پیدا کردن جدیدترین دانلودی که بعد از startTime ما شروع شده
+            const targetDl = dls.find(d => new Date(d.startTime).getTime() >= payload.startTime - 2000);
+            
+            if (targetDl) {
+                if (targetDl.state === 'complete') {
+                    clearInterval(checkInterval);
+                    logger.info(`✅ Native download complete: ${targetDl.filename}`);
+                    
+                    // ارسال آدرس فایل محلی به سرور OCR پایتون
+                    const LOCAL_OCR_URL = 'http://127.0.0.1:5151/ocr';
+                    try {
+                        const res = await fetch(LOCAL_OCR_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ file_path: targetDl.filename })
+                        });
+                        const data = await res.json();
+                        if (data.success && data.text && data.text.trim().length > 10) {
+                            logger.info(`✅ Local path OCR موفق: ${data.text.length} کاراکتر`);
+                            sendResponse({ success: true, text: data.text });
+                        } else {
+                            sendResponse({ success: false, error: data.error || 'متنی یافت نشد' });
+                        }
+                    } catch (err) {
+                        logger.error('Local OCR via path failed:', err.message);
+                        sendResponse({ success: false, error: err.message });
+                    }
+                } else if (targetDl.state === 'interrupted') {
+                    clearInterval(checkInterval);
+                    logger.warn('❌ Native download interrupted');
+                    sendResponse({ success: false, error: 'دانلود لغو شد یا با خطا مواجه شد' });
+                }
+            } else if (tries >= maxTries) {
+                clearInterval(checkInterval);
+                logger.warn('❌ Native download timeout');
+                sendResponse({ success: false, error: 'دانلود در ۳۰ ثانیه پیدا/تکمیل نشد' });
+            }
+        } catch(e) {
+            clearInterval(checkInterval);
+            logger.error('chrome.downloads error:', e);
+            sendResponse({ success: false, error: e.message });
+        }
+    }, 1000);
+}
+
+// ===== Handler: فقط OCR یک فایل (بدون AI) =====
+async function handleOcrFileOnly(payload, sendResponse) {
+    if (!payload || !payload.base64) {
+        sendResponse({ success: false, error: 'base64 داده نشد' });
+        return;
+    }
+    try {
+        const text = await tryLocalOcr(payload.base64);
+        if (text && text.trim().length > 5) {
+            sendResponse({ success: true, text });
+        } else {
+            sendResponse({ success: false, error: 'متنی یافت نشد' });
+        }
+    } catch (err) {
+        logger.error('handleOcrFileOnly error:', err);
+        sendResponse({ success: false, error: err.message });
+    }
+}
+
 // ===== Handler: OCR با base64 که content.js دانلود کرده =====
 async function handleOcrWithBase64(payload, sendResponse) {
     if (!payload || (!payload.base64 && !payload.rawText)) {
@@ -330,8 +433,15 @@ async function handleOcrWithBase64(payload, sendResponse) {
             sendResponse({ success: false, error: 'OCR محلی ناموفق بود (متنی یافت نشد)' });
             return;
         }
-        logger.info('✅ ocrWithBase64 text length:', localText.length);
-        const structured = await analyzeTextOnly(localText, payload.baseData || {});
+        
+        // Truncate to avoid excessive token usage, but allow enough for most documents
+        let truncatedText = localText;
+        if (truncatedText.length > 15000) {
+            truncatedText = truncatedText.substring(0, 15000) + '\n...[متن کوتاه شد]...';
+        }
+        
+        logger.info('✅ ocrWithBase64 text length:', localText.length, 'Truncated to:', truncatedText.length);
+        const structured = await analyzeTextOnly(truncatedText, payload.baseData || {});
         if (!structured) {
             sendResponse({ success: false, error: 'خطا در آنالیز ساختار نامه' });
             return;
@@ -341,6 +451,94 @@ async function handleOcrWithBase64(payload, sendResponse) {
         sendResponse({ success: true, data: structured });
     } catch (err) {
         logger.error('handleOcrWithBase64 error:', err);
+        sendResponse({ success: false, error: err.message });
+    }
+}
+
+// ===== Handler: دریافت فایل به صورت Base64 =====
+async function handleFetchFileAsBase64(payload, sendResponse) {
+    if (!payload || !payload.url) {
+        sendResponse({ success: false, error: 'URL دریافت نشد' });
+        return;
+    }
+    try {
+        logger.info('Fetching file to Base64:', payload.url);
+        const imgRes = await fetch(payload.url, {
+            credentials: 'include',
+            headers: { 'Accept': '*/*' }
+        });
+        if (!imgRes.ok) throw new Error(`Fetch ${imgRes.status}: ${imgRes.statusText}`);
+        const buf = await imgRes.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+
+        let bin = '';
+        const chunk = 8192;
+        for (let i = 0; i < bytes.byteLength; i += chunk) {
+            bin += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.byteLength)));
+        }
+        const b64 = btoa(bin);
+        const finalDataUrl = `data:application/octet-stream;base64,${b64}`;
+        sendResponse({ success: true, dataUrl: finalDataUrl });
+    } catch (err) {
+        logger.error('handleFetchFileAsBase64 error:', err);
+        sendResponse({ success: false, error: err.message });
+    }
+}
+
+// ===== Handler: OCR چند فایل و ترکیب متن =====
+async function handleOcrAndAnalyzeMultiple(payload, sendResponse) {
+    if (!payload || !payload.files || !payload.files.length) {
+        sendResponse({ success: false, error: 'لیست فایل‌ها خالی است' });
+        return;
+    }
+    try {
+        if (!currentConfig) await loadConfig();
+        
+        let allExtractedText = '';
+        logger.info(`Starting multi-file OCR for ${payload.files.length} files...`);
+
+        for (let i = 0; i < payload.files.length; i++) {
+            const file = payload.files[i];
+            if (!file.base64) continue;
+            
+            logger.info(`Processing file ${i+1}/${payload.files.length}: ${file.label || 'Unknown'}`);
+            try {
+                // tryLocalOcr accepts base64 data URL
+                const localText = await tryLocalOcr(file.base64);
+                if (localText && localText.trim().length > 10) {
+                    allExtractedText += `\n\n--- [${file.label || 'فایل ' + (i+1)}] ---\n${localText}`;
+                } else {
+                    logger.warn(`No text extracted for file ${file.label}`);
+                }
+            } catch (ocrErr) {
+                logger.error(`OCR failed for file ${file.label}:`, ocrErr);
+            }
+        }
+
+        if (allExtractedText.trim().length < 10) {
+            sendResponse({ success: false, error: 'متنی از هیچ یک از فایل‌ها استخراج نشد' });
+            return;
+        }
+
+        let truncatedText = allExtractedText;
+        if (truncatedText.length > 25000) {
+            truncatedText = truncatedText.substring(0, 25000) + '\n...[متن کوتاه شد]...';
+        }
+
+        logger.info('✅ Multiple files OCR complete. Total text length:', truncatedText.length);
+        const structured = await analyzeTextOnly(truncatedText, payload.baseData || {});
+        
+        if (!structured) {
+            sendResponse({ success: false, error: 'خطا در آنالیز ساختار نامه' });
+            return;
+        }
+        
+        structured.rawText = allExtractedText;
+        applyAddressBookMatch(structured, payload.baseData || {});
+        sendResponse({ success: true, data: structured });
+
+    } catch (err) {
+        logger.error('handleOcrAndAnalyzeMultiple error:', err);
         sendResponse({ success: false, error: err.message });
     }
 }

@@ -281,77 +281,20 @@ async function checkAndAutoFillFromStorage() {
     }
 }
 
-// --- غنی‌سازی داده‌ها: ابتدا متن، سپس تصویر ---
+// --- غنی‌سازی داده‌ها: دریافت تمام فایل‌های ضمیمه و OCR ---
 async function enrichWithOCR(baseData) {
-    // ابتدا تلاش برای استخراج متن از صفحه (PDF خوانا)
-    const pageText = extractTextFromPage();
-    if (pageText && pageText.length > 100) {
-        updatePanelStep(2, 'loading', 'متن نامه یافت شد، در حال آنالیز متنی...');
-        try {
-            const result = await chrome.runtime.sendMessage({
-                action: 'ocrAndAnalyzeLetter',
-                payload: { extractedText: pageText, baseData }
-            });
-            if (result.success) {
-                const merged = mergeData(baseData, result.data);
-                aiLogger.info('=====================================');
-                aiLogger.info('📝 RAW OCR TEXT EXTRACTED:');
-                aiLogger.info(merged.rawText || 'هیچ متنی پیدا نشد');
-                aiLogger.info('=====================================');
-                aiLogger.info('🤖 LLM STRUCTURED OUTPUT:');
-                aiLogger.info(merged);
-                aiLogger.info('=====================================');
+    // استفاده از تابع مشترک برای باز کردن منوی زنجیره مدرک، دانلود فایل‌ها و ارسال به هوش مصنوعی
+    const result = await extractAndAnalyzeFiles(baseData);
+    const letterData = result.letterData;
+    const analysisSuccess = result.analysisSuccess;
 
-                await chrome.storage.local.remove(['autoimport_pending']);
-                updatePanelStep(2, 'done', 'آنالیز متنی کامل شد (بدون OCR) ✓');
-                updatePanelStep(3, 'loading', 'در حال پر کردن فیلدها...');
-                await fillFormFields(merged);
-                updatePanelStep(3, 'done', 'فیلدها پر شدند ✓');
-                await executeAutoSaveAndSend();
-                return;
-            }
-        } catch (e) {
-            aiLogger.warn('Text analysis failed, trying image OCR:', e.message);
-        }
+    if (!analysisSuccess) {
+        updatePanelStep(2, 'error', 'خطا در استخراج فایل‌ها یا هوش مصنوعی (استفاده از اطلاعات پایه)');
     }
 
-    // سپس تصویر نامه
-    const imageUrl = getLetterImageUrl();
-    if (imageUrl) {
-        updatePanelStep(2, 'loading', 'در حال OCR تصویر نامه...');
-        try {
-            const ocrResult = await chrome.runtime.sendMessage({
-                action: 'ocrAndAnalyzeLetter',
-                payload: { imageUrl, baseData }
-            });
-            if (ocrResult.success) {
-                const merged = mergeData(baseData, ocrResult.data);
-                aiLogger.info('=====================================');
-                aiLogger.info('📝 RAW OCR TEXT EXTRACTED (FROM IMAGE):');
-                aiLogger.info(merged.rawText || 'هیچ متنی پیدا نشد');
-                aiLogger.info('=====================================');
-                aiLogger.info('🤖 LLM STRUCTURED OUTPUT:');
-                aiLogger.info(merged);
-                aiLogger.info('=====================================');
-
-                await chrome.storage.local.remove(['autoimport_pending']);
-                updatePanelStep(2, 'done', 'OCR و آنالیز کامل شد ✓');
-                updatePanelStep(3, 'loading', 'در حال پر کردن فیلدها...');
-                await fillFormFields(merged);
-                updatePanelStep(3, 'done', 'فیلدها پر شدند ✓');
-                await executeAutoSaveAndSend();
-                return;
-            }
-        } catch (e) {
-            aiLogger.warn('OCR failed, using email data only:', e.message);
-        }
-    }
-
-    // اگر هیچکدام نشد، از داده‌های ایمیل استفاده کن
-    updatePanelStep(2, 'done', 'از اطلاعات ایمیل استفاده شد ✓');
     await chrome.storage.local.remove(['autoimport_pending']);
     updatePanelStep(3, 'loading', 'در حال پر کردن فیلدها...');
-    await fillFormFields(baseData);
+    await fillFormFields(letterData);
     updatePanelStep(3, 'done', 'فیلدها پر شدند ✓');
     await executeAutoSaveAndSend();
 }
@@ -394,6 +337,140 @@ async function startFormAutoImport() {
             }
         } catch(e) {}
         
+async function extractAndAnalyzeFiles(letterData) {
+    let analysisSuccess = false;
+
+    updatePanelStep(3, 'loading', 'در حال باز کردن منوی فایل‌های ضمیمه...');
+    
+    // ۱. پیدا کردن دکمه و کلیک روی آن
+    for (const doc of allDocs()) {
+        const depBtn = doc.getElementById('ulDependency');
+        if (depBtn) {
+            try { depBtn.click(); } catch(e) {}
+            break; // یک بار کلیک کافیست
+        }
+    }
+    
+    // ۲. تلاش برای پیدا کردن منوی باز شده در تمام صفحات (تا ۳۰ ثانیه)
+    let scannedDiv = null;
+    let foundDoc = null;
+    for (let i = 0; i < 30; i++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        updatePanelStep(3, 'loading', `در حال جستجوی منوی پیوست‌ها... (تلاش ${i+1} از 30)`);
+        for (const doc of allDocs()) {
+            const div = doc.getElementById('ScannedImages');
+            if (div && div.innerHTML.includes('DownLoad_OnClick')) {
+                scannedDiv = div;
+                foundDoc = doc;
+                break;
+            }
+        }
+        if (scannedDiv) {
+            aiLogger.info('✅ ScannedImages found on attempt ' + (i+1));
+            break;
+        }
+    }
+    
+    // ۳. استخراج فایل‌ها
+    let allFiles = [];
+    if (scannedDiv) {
+        const downloadBtns = scannedDiv.querySelectorAll('div[onclick*="DownLoad_OnClick"]');
+        for (const btn of downloadBtns) {
+            const onclick = btn.getAttribute('onclick') || '';
+            if (onclick.includes("'true'")) {
+                let labelStr = 'فایل ' + (allFiles.length + 1);
+                let ext = '';
+                const tr = btn.closest('tr');
+                if (tr) {
+                    const lbl = tr.querySelector('label');
+                    if (lbl && lbl.innerText) {
+                        labelStr = lbl.innerText.trim();
+                        if (labelStr.includes('.')) ext = labelStr.substring(labelStr.lastIndexOf('.')).toLowerCase();
+                    }
+                }
+                if (!SKIP_EXTENSIONS.has(ext)) {
+                    allFiles.push({ type: 'btn', btn, label: labelStr });
+                }
+            }
+        }
+    }
+    
+    // اگر از منوی بالا چیزی پیدا نشد، از روش قبلی استفاده کن
+    if (allFiles.length === 0) {
+        allFiles = getAllFileUrls().map(f => ({ type: 'url', url: f.url, label: f.label }));
+    }
+    
+    aiLogger.info(`📂 Found ${allFiles.length} file(s):`, allFiles.map(f => f.label));
+
+    // دیالوگ را اینجا نمی‌بندیم چون برای کلیک روی دکمه‌ها در حالت بومی، باید باز بماند.
+
+    if (allFiles.length > 0) {
+        updatePanelStep(3, 'loading', `آماده دانلود بومی ${allFiles.length} فایل ضمیمه...`);
+        try {
+            // دانلود فایل‌ها به صورت بومی و استخراج متن
+            const downloadedFiles = await downloadAndConvertFiles(allFiles, foundDoc || document);
+            // فقط فایل‌های با موفقیت دانلود شده را نگه دار
+            const validFiles = downloadedFiles.filter(f => f.success && f.text);
+            
+            if (validFiles.length > 0) {
+                updatePanelStep(3, 'loading', `در حال ارسال متن ${validFiles.length} فایل به هوش مصنوعی...`);
+                
+                let combinedText = '';
+                for (let i = 0; i < validFiles.length; i++) {
+                    combinedText += `\n\n--- [${validFiles[i].label}] ---\n${validFiles[i].text}`;
+                }
+
+                // ارسال به پس‌زمینه برای آنالیز ساختاریافته متنی
+                const ocrRes = await chrome.runtime.sendMessage({
+                    action: 'ocrAndAnalyzeLetter',
+                    payload: { extractedText: combinedText, baseData: letterData }
+                });
+                
+                if (ocrRes.success) {
+                    letterData = mergeData(letterData, ocrRes.data);
+                    analysisSuccess = true;
+                    showExtractedData(letterData, validFiles.map(f => f.label).join(', '));
+                    updatePanelStep(3, 'done', `آنالیز متنی ${validFiles.length} فایل کامل شد ✓`);
+                } else {
+                    if (combinedText) {
+                        letterData.description = (letterData.description || '') + '\n\nمتن استخراج شده:\n' + combinedText;
+                    }
+                    updatePanelStep(3, 'error', `خطای هوش مصنوعی: ${ocrRes.error || 'نامشخص'}`);
+                }
+            } else {
+                updatePanelStep(3, 'error', `هیچ فایلی با موفقیت دانلود و تبدیل نشد.`);
+            }
+        } catch (e) {
+            updatePanelStep(3, 'error', `خطای سیستمی: ${e.message}`);
+        }
+    } else {
+        updatePanelStep(3, 'done', 'فایل قابل OCR یافت نشد — از اطلاعات فعلی استفاده می‌شود ✓');
+    }
+    // ۵. بستن پنجره پاپ‌آپ زنجیره مدرک (بعد از اتمام دانلودها)
+    if (scannedDiv) {
+        aiLogger.info('Closing dependency dialog...');
+        try {
+            const btnClose = foundDoc.getElementById('btnClose');
+            if (btnClose) btnClose.click();
+            else {
+                const altClose = window.top.document.querySelector('.ui-dialog-titlebar-close');
+                if (altClose) altClose.click();
+            }
+        } catch(e) {}
+    }
+
+    return { letterData, analysisSuccess };
+}
+
+// چک می‌کنیم آیا نامه از نوع "رسید خواندن" است؟
+        if (existingData.subject && (existingData.subject.includes('رسید خواندن') || existingData.subject.includes('رسيد خواندن'))) {
+            aiLogger.info('Read receipt detected from email data, aborting registration.');
+            updatePanelStep(1, 'done', 'رسید خواندن تشخیص داده شد، توقف عملیات ✓');
+            showNotification('ℹ️ نامه رسید خواندن است. نیازی به ثبت و ارجاع نیست.', 'info');
+            await handleAutoCloseTab();
+            return;
+        }
+
         updatePanelStep(1, 'done', 'اطلاعات فرم خوانده شد ✓');
 
         // مرحله ۲: فقط گیرنده (کد ۱۰ + مدیریت اداره کل) را پر کن و ذخیره کن
@@ -402,118 +479,13 @@ async function startFormAutoImport() {
         await clickSave();
         updatePanelStep(2, 'done', 'ثبت اولیه موفق ✓');
 
-        // مرحله ۳: OCR همه فایل‌های ضمیمه
-        updatePanelStep(3, 'loading', 'در حال یافتن فایل‌های ضمیمه...');
-        await new Promise(resolve => setTimeout(resolve, 2000)); // صبر برای لود شدن فایل‌ها
-
-        const allFileUrls = getAllFileUrls();
-        aiLogger.info(`📂 Found ${allFileUrls.length} file(s):`, allFileUrls.map(f => f.label));
-
-        let combinedOcrText = '';
-        let analysisSuccess = false;
-
-        if (allFileUrls.length > 0) {
-            for (let fi = 0; fi < allFileUrls.length; fi++) {
-                const { url, label, ext } = allFileUrls[fi];
-                updatePanelStep(3, 'loading', `در حال دانلود ${label} (${fi+1}/${allFileUrls.length})...`);
-                try {
-                    aiLogger.info(`🔗 Fetching ${label} from:`, url.substring(0, 120));
-                    const fileRes = await fetch(url, { credentials: 'include', headers: { 'Accept': '*/*' } });
-                    aiLogger.info(`📬 ${label} response: HTTP ${fileRes.status}, type:`, fileRes.headers.get('content-type') || 'unknown');
-                    if (!fileRes.ok) throw new Error(`HTTP ${fileRes.status}`);
-                    const buf = await fileRes.arrayBuffer();
-                    const bytes = new Uint8Array(buf);
-                    aiLogger.info(`📦 ${label} size: ${(buf.byteLength/1024).toFixed(1)} KB, first bytes:`, 
-                        Array.from(bytes.slice(0, 8)).map(b => b.toString(16).padStart(2,'0')).join(' '));
-
-                    // بررسی اینکه فایل HTML نباشد (redirect/login)
-                    const headerStr = String.fromCharCode(...bytes.slice(0, 100)).trim().toLowerCase();
-                    if (headerStr.includes('<!doctype') || headerStr.startsWith('<html') || headerStr.includes('<head>')) {
-                        aiLogger.warn(`${label}: سرور HTML برگرداند (redirect/login). اول 200 کاراکتر:`, headerStr.substring(0, 200));
-                        continue;
-                    }
-
-                    aiLogger.info(`✅ ${label} downloaded: ${(buf.byteLength/1024).toFixed(1)} KB — binary file confirmed`);
-
-                    // تبدیل به base64 به صورت chunk‌ای
-                    let bin = '';
-                    const chunk = 8192;
-                    for (let i = 0; i < bytes.byteLength; i += chunk) {
-                        bin += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.byteLength)));
-                    }
-                    const b64 = `data:application/octet-stream;base64,${btoa(bin)}`;
-
-                    updatePanelStep(3, 'loading', `در حال OCR ${label}...`);
-                    const ocrRes = await chrome.runtime.sendMessage({
-                        action: 'ocrFileOnly',
-                        payload: { base64: b64 }
-                    });
-
-                    if (ocrRes && ocrRes.success && ocrRes.text && ocrRes.text.trim().length > 10) {
-                        aiLogger.info(`✅ ${label} OCR text: ${ocrRes.text.length} chars`);
-                        combinedOcrText += (combinedOcrText ? '\n\n--- ' + label + ' ---\n' : '') + ocrRes.text.trim();
-                    } else {
-                        aiLogger.warn(`${label} OCR failed:`, ocrRes?.error || 'empty');
-                    }
-                } catch(e) {
-                    aiLogger.warn(`${label} error:`, e.message);
-                }
-            }
-        }
-
-        // اگر متن OCR داریم، به AI بفرست
-        if (combinedOcrText.trim().length > 30) {
-            updatePanelStep(3, 'loading', 'در حال آنالیز متن توسط هوش مصنوعی...');
-            try {
-                const ocrRes = await chrome.runtime.sendMessage({
-                    action: 'ocrWithBase64',
-                    payload: { base64: null, rawText: combinedOcrText, baseData: existingData }
-                });
-                if (ocrRes.success) {
-                    letterData = mergeData(existingData, ocrRes.data);
-                    // متن خام OCR همیشه در توضیحات باشد
-                    if (!letterData.description || letterData.description.trim().length < 20) {
-                        letterData.description = combinedOcrText;
-                    }
-                    updatePanelStep(3, 'done', `OCR ${allFileUrls.length} فایل کامل شد ✓`);
-                    showExtractedData(letterData);
-                    analysisSuccess = true;
-                } else {
-                    // اگر AI نتوانست، حداقل متن OCR را در توضیحات بگذار
-                    letterData.description = combinedOcrText;
-                    updatePanelStep(3, 'done', 'OCR انجام شد، متن در توضیحات ✓');
-                    showExtractedData(letterData);
-                    analysisSuccess = true;
-                }
-            } catch(e) {
-                aiLogger.warn('Analysis error:', e.message);
-                letterData.description = combinedOcrText;
-                analysisSuccess = true;
-            }
-        }
-
-        // fallback: متن موجود در صفحه
-        const pageText = extractTextFromPage();
-        if (!analysisSuccess && pageText && pageText.length > 100) {
-            updatePanelStep(3, 'loading', 'متن نامه یافت شد، در حال آنالیز...');
-            try {
-                const textRes = await chrome.runtime.sendMessage({
-                    action: 'ocrAndAnalyzeLetter',
-                    payload: { extractedText: pageText, baseData: existingData }
-                });
-                if (textRes.success) {
-                    letterData = mergeData(existingData, textRes.data);
-                    updatePanelStep(3, 'done', 'آنالیز متنی کامل شد ✓');
-                    showExtractedData(letterData);
-                    analysisSuccess = true;
-                }
-            } catch (e) {
-                aiLogger.warn('Text analysis failed:', e.message);
-            }
-        }
+        // مرحله ۳: دریافت فایل‌های ضمیمه و آنالیز با هوش مصنوعی
+        const result = await extractAndAnalyzeFiles(existingData);
+        let letterData = result.letterData;
+        let analysisSuccess = result.analysisSuccess;
 
         if (!analysisSuccess) {
-            updatePanelStep(3, 'done', 'فایل قابل OCR یافت نشد — از اطلاعات فعلی استفاده می‌شود ✓');
+            updatePanelStep(3, 'error', 'خطا در آنالیز ضمیمه‌ها (ادامه با دیتای خام)');
         }
 
         // مرحله ۴: پر کردن تمام فیلدها و ذخیره نهایی
@@ -535,6 +507,8 @@ async function startFormAutoImport() {
         await clickSendAndHandle(refName);
         updatePanelStep(5, 'done', 'نامه ارجاع داده شد ✓');
         showNotification('✅ نامه با موفقیت ثبت و ارجاع داده شد', 'success');
+
+        await handleAutoCloseTab();
 
     } catch (err) {
         aiLogger.error('startFormAutoImport error:', err);
@@ -583,6 +557,87 @@ function readExistingFormData() {
         keywords: '',
         isFullyFilled
     };
+}
+
+async function handleAutoCloseTab() {
+    try {
+        const settings = await chrome.storage.local.get(['autoimport_autoclose']);
+        if (settings.autoimport_autoclose) {
+            aiLogger.info('Auto-close is enabled, attempting to close registration tab...');
+            let closeBtn = null;
+            
+            // تب‌ها معمولا در پنجره پدر (Parent) یا بالاترین پنجره (Top) هستند
+            const docsToSearch = [window.parent.document, window.top.document, document];
+
+            // استراتژی ۱: پیدا کردن تمام دکمه‌های بستن در تب‌ها بر اساس متن "وارده"
+            for (const doc of docsToSearch) {
+                if (!doc) continue;
+                const allCloseButtons = Array.from(doc.querySelectorAll('button.close, .close, [id^="btn-"]'));
+                
+                for (const btn of allCloseButtons) {
+                    const tabContainer = btn.closest('li') || btn.closest('a') || btn.parentElement;
+                    if (!tabContainer) continue;
+                    
+                    const tabText = (tabContainer.textContent || '').replace(/\s+/g, ' ').trim();
+                    
+                    // جستجوی کلمات کلیدی
+                    if (tabText.includes('وارده') || tabText.includes('ثبت')) {
+                        // یک چک امنیتی: مطمئن شویم تب دریافت یا صندوق نیست
+                        if (!tabText.includes('دريافت') && !tabText.includes('دریافت') && !tabText.includes('صندوق')) {
+                            closeBtn = btn;
+                            break;
+                        }
+                    }
+                }
+                if (closeBtn) break;
+            }
+
+            // استراتژی ۲: استفاده از ID فریم فعلی (ممکن است ID روی div پدر iframe باشد)
+            if (!closeBtn && window.frameElement) {
+                const frameId = window.frameElement.id || (window.frameElement.parentElement ? window.frameElement.parentElement.id : '');
+                const tabIdMatch = frameId.match(/\d+/);
+                
+                if (tabIdMatch) {
+                    for (const doc of docsToSearch) {
+                        if (!doc) continue;
+                        const potentialBtn = doc.getElementById('btn-' + tabIdMatch[0]) || doc.querySelector(`[tabid="${tabIdMatch[0]}"] button.close`);
+                        if (potentialBtn) {
+                            const tabContainer = potentialBtn.closest('li') || potentialBtn.closest('a') || potentialBtn.parentElement;
+                            const tabText = tabContainer ? (tabContainer.textContent || '') : '';
+                            
+                            // چک امنیتی سخت‌گیرانه: اگر تب مربوط به دریافت/صندوق نباشد، می‌بندیمش
+                            if (!tabText.includes('دريافت') && !tabText.includes('دریافت') && !tabText.includes('صندوق')) {
+                                closeBtn = potentialBtn;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (closeBtn) {
+                aiLogger.info('Registration tab close button found! Simulating click in 1.5s...', closeBtn);
+                setTimeout(() => {
+                    try {
+                        aiLogger.info('Executing click on tab close button...');
+                        // 1. روش عادی
+                        closeBtn.click();
+                        // 2. روش MouseEvent
+                        const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, view: window.top });
+                        closeBtn.dispatchEvent(clickEvent);
+                    } catch(err) {
+                        aiLogger.warn('Error clicking close button:', err);
+                    }
+                }, 1500); 
+            } else {
+                aiLogger.warn('Could not find registration tab close button. Aborting auto-close to prevent closing wrong tabs.');
+            }
+        } else {
+            aiLogger.info('Auto-close setting is OFF.');
+        }
+    } catch(e) {
+        aiLogger.warn('Auto-close error:', e);
+    }
 }
 
 // ===================================================
@@ -686,6 +741,9 @@ async function executeAutoSaveAndSend() {
     updatePanelStep(5, 'done', 'نامه ارجاع داده شد ✓');
 
     showNotification('✅ نامه با موفقیت ثبت و ارجاع داده شد', 'success');
+
+    await handleAutoCloseTab();
+
 }
 
 async function clickSave() {
@@ -874,10 +932,11 @@ async function clickReferralOK() {
 
 function closeReferralPopup() {
     for (const doc of allDocs()) {
-        for (const btn of doc.querySelectorAll('button.close, button[id^="btn-"], .modal .close, [data-dismiss="modal"]')) {
-            const txt = btn.textContent.trim();
-            if ((txt === '×' || txt === 'x' || btn.classList.contains('close')) && btn.offsetParent !== null) {
-                btn.click(); aiLogger.info('Popup closed'); return;
+        for (const btn of doc.querySelectorAll('.ui-dialog-titlebar-close, .modal .close, [data-dismiss="modal"]')) {
+            if (btn.offsetParent !== null) {
+                btn.click(); 
+                aiLogger.info('Referral popup closed safely'); 
+                return;
             }
         }
     }
@@ -925,8 +984,47 @@ const SKIP_EXTENSIONS = new Set([
     '.mp4', '.mp3', '.avi', '.mkv',             // رسانه
 ]);
 
-function getAllFileUrls() {
+// ===================================================
+// ۸. استخراج تمام فایل‌ها و دانلود آن‌ها
+// ===================================================
+async function downloadAndConvertFiles(filesInfo, doc) {
     const results = [];
+    for (let i = 0; i < filesInfo.length; i++) {
+        const fileInfo = filesInfo[i];
+        try {
+            updatePanelStep(3, 'loading', `در حال دانلود بومی و استخراج متن ${fileInfo.label}...`);
+            const startTime = Date.now();
+            
+            if (fileInfo.type === 'btn') {
+                // کلیک واقعی روی دکمه برای دانلود نیتیو توسط مرورگر
+                fileInfo.btn.click();
+            } else if (fileInfo.type === 'url') {
+                const a = document.createElement('a');
+                a.href = fileInfo.url;
+                a.download = '';
+                a.click();
+            }
+            
+            // منتظر دانلود شدن و گرفتن نتیجه متنی مستقیما از سرور محلی
+            const res = await chrome.runtime.sendMessage({
+                action: 'ocrNativeDownload',
+                payload: { startTime }
+            });
+            
+            if (res.success && res.text) {
+                results.push({ success: true, text: res.text, label: fileInfo.label });
+            } else {
+                results.push({ success: false, error: res.error || 'Empty text', label: fileInfo.label });
+            }
+        } catch(err) {
+            aiLogger.warn(`Failed native download/OCR for ${fileInfo.label}:`, err);
+            results.push({ success: false, error: err.message, label: fileInfo.label });
+        }
+    }
+    return results;
+}
+
+function getAllFileUrls() {
     const seen = new Set();
 
     // تابع کمکی برای ساخت URL کامل
@@ -1105,9 +1203,30 @@ function toEnglishDigits(str) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+function getTopMostSameOriginWindow(win) {
+    let current = win;
+    while (current !== current.parent) {
+        try {
+            const doc = current.parent.document;
+            if (doc) {
+                current = current.parent;
+            } else {
+                break;
+            }
+        } catch (e) {
+            break;
+        }
+    }
+    return current;
+}
+
 function* allDocs(rootDoc = null) {
     if (!rootDoc) {
-        try { rootDoc = window.top.document; } catch(e) { rootDoc = document; }
+        try { 
+            rootDoc = getTopMostSameOriginWindow(window).document; 
+        } catch(e) { 
+            rootDoc = document; 
+        }
     }
     if (!rootDoc) return;
     yield rootDoc;
