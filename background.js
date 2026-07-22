@@ -370,6 +370,14 @@ async function handleOcrNativeDownload(payload, sendResponse) {
                         if (data.success && data.text && data.text.trim().length > 10) {
                             logger.info(`✅ Local path OCR موفق: ${data.text.length} کاراکتر`);
                             sendResponse({ success: true, text: data.text });
+                            
+                            // حذف فایل دانلود شده
+                            try {
+                                await chrome.downloads.removeFile(targetDl.id);
+                                logger.info(`🗑️ Deleted downloaded file: ${targetDl.filename}`);
+                            } catch(e) {
+                                logger.warn('Failed to delete file:', e.message);
+                            }
                         } else {
                             sendResponse({ success: false, error: data.error || 'متنی یافت نشد' });
                         }

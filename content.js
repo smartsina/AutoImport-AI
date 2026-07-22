@@ -31,6 +31,45 @@ function detectPageAndInject() {
     if (document.getElementById('ResultsTable') ||
         document.querySelector('table.EmailGeneralFarsiTable2')) {
         injectEmailListButton();
+        
+        // چک کردن برای از سرگیری ثبت گروهی در صورت رفرش شدن صفحه
+        chrome.storage.local.get([
+            'autoimport_batch_active', 'autoimport_batch_queue', 'autoimport_batch_total',
+            'autoimport_batch_paused', 'autoimport_batch_waiting', 'autoimport_batch_wait_time'
+        ]).then(stored => {
+            if (stored.autoimport_batch_active && stored.autoimport_batch_queue && stored.autoimport_batch_queue.length > 0) {
+                window.isBatchProcessing = true;
+                window.autoImportQueue = stored.autoimport_batch_queue;
+                window.batchTotal = stored.autoimport_batch_total || stored.autoimport_batch_queue.length;
+                window.isBatchPaused = stored.autoimport_batch_paused || false;
+                aiLogger.info('Resuming batch processing from storage. Queue length:', window.autoImportQueue.length);
+                
+                showBatchPanel(window.batchTotal);
+                updateBatchPanelProgress(window.batchTotal, window.autoImportQueue.length);
+                
+                if (window.isBatchPaused) {
+                    const btn = document.getElementById('ai-batch-pause-btn');
+                    if (btn) {
+                        btn.innerHTML = '▶️ ادامه ثبت گروهی';
+                        btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                    }
+                    const statusEl = document.getElementById('ai-batch-status');
+                    if (statusEl) statusEl.textContent = 'وضعیت: متوقف شده';
+                }
+
+                // فقط در صورتی به نامه بعدی برو که منتظر اتمام نامه فعلی نباشیم (یا تایم‌اوت ۲ دقیقه‌ای شده باشد) و پاز نباشد
+                const isWaiting = stored.autoimport_batch_waiting;
+                const waitTime = stored.autoimport_batch_wait_time || 0;
+                const isTimeout = (Date.now() - waitTime) > 120000;
+                
+                if (!window.isBatchPaused && (!isWaiting || isTimeout)) {
+                    setTimeout(processNextBatchItem, 2000);
+                } else if (isWaiting && !isTimeout) {
+                    aiLogger.info('Batch is waiting for current form to finish...');
+                }
+            }
+        });
+        
         return;
     }
 
@@ -39,6 +78,15 @@ function detectPageAndInject() {
         document.getElementById('txtImportOriginNO')) {
         injectImportFormButton();
         checkAndAutoFillFromStorage();
+        
+        // چک کردن برای حالت ثبت گروهی (Batch)
+        chrome.storage.local.get(['autoimport_batch_active']).then(stored => {
+            if (stored.autoimport_batch_active) {
+                aiLogger.info('Batch import is active, auto-starting startFormAutoImport...');
+                setTimeout(startFormAutoImport, 1500);
+            }
+        });
+        
         return;
     }
 }
@@ -66,21 +114,30 @@ function injectEmailListButton() {
 
     const btnContainer = document.createElement('span');
     btnContainer.id = 'ai-emaillist-btn';
-    btnContainer.innerHTML = buildButtonHTML('ثبت هوشمند وارده');
+    btnContainer.innerHTML = buildButtonHTML('ثبت هوشمند وارده', 'single-import-btn') + buildButtonHTML('ثبت گروهی وارده', 'batch-import-btn');
     toolbar.appendChild ? toolbar.appendChild(btnContainer) : toolbar.insertAdjacentElement('afterend', btnContainer);
 
-    btnContainer.querySelector('.ai-smart-btn').addEventListener('click', handleEmailListImport);
-    aiLogger.info('Email list button injected');
+    btnContainer.querySelector('.single-import-btn').addEventListener('click', handleEmailListImport);
+    btnContainer.querySelector('.batch-import-btn').addEventListener('click', handleBatchEmailImport);
+    aiLogger.info('Email list buttons injected');
 }
 
 function injectFloatingEmailButton() {
     if (document.getElementById('ai-emaillist-btn')) return;
     const btn = document.createElement('div');
     btn.id = 'ai-emaillist-btn';
-    btn.style.cssText = `position:fixed;top:12px;left:12px;z-index:999999;`;
-    btn.innerHTML = buildButtonHTML('ثبت هوشمند وارده');
-    document.body.appendChild(btn);
-    btn.querySelector('.ai-smart-btn').addEventListener('click', handleEmailListImport);
+    btn.style.cssText = `width: 100%; padding: 6px 10px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: block; box-sizing: border-box; margin-bottom: 10px; z-index: 999;`;
+    btn.innerHTML = buildButtonHTML('ثبت هوشمند وارده', 'single-import-btn') + buildButtonHTML('ثبت گروهی وارده', 'batch-import-btn');
+    
+    // Inject at the very top of the body
+    if (document.body.firstChild) {
+        document.body.insertBefore(btn, document.body.firstChild);
+    } else {
+        document.body.appendChild(btn);
+    }
+    
+    btn.querySelector('.single-import-btn').addEventListener('click', handleEmailListImport);
+    btn.querySelector('.batch-import-btn').addEventListener('click', handleBatchEmailImport);
 }
 
 function findToolbarByButtons() {
@@ -102,9 +159,9 @@ function findToolbarByAnyButton() {
     return null;
 }
 
-function buildButtonHTML(label) {
+function buildButtonHTML(label, extraClass = '') {
     return `
-    <button type="button" class="ai-smart-btn" style="
+    <button type="button" class="ai-smart-btn ${extraClass}" style="
         cursor:pointer; display:inline-flex; align-items:center; gap:5px;
         padding:5px 12px; margin:0 4px;
         background:linear-gradient(135deg,#6366f1,#8b5cf6);
@@ -175,6 +232,228 @@ async function handleEmailListImport() {
         showNotification('❌ خطا: ' + err.message, 'error');
     } finally {
         isProcessing = false;
+    }
+}
+
+// --- توابع ثبت جمعی (Batch Import) ---
+window.autoImportQueue = [];
+window.isBatchProcessing = false;
+
+async function handleBatchEmailImport() {
+    if (window.isBatchProcessing) {
+        showNotification('⏳ در حال پردازش جمعی...', 'warning');
+        return;
+    }
+
+    // پیدا کردن تمام چک‌باکس‌های تیک‌خورده در جدول ResultsTable
+    const checkboxes = Array.from(document.querySelectorAll('#ResultsTable tr input[type="Checkbox"], #ResultsTable tr input[type="checkbox"]'))
+                            .filter(cb => cb.checked);
+    
+    // بررسی تنظیمات بازیافت رسیدها
+    const settings = await chrome.storage.local.get(['autoimport_recycle_receipts']);
+    const recycleReceipts = !!settings.autoimport_recycle_receipts;
+
+    // استخراج شناسه‌های منحصر به فرد و بررسی رسید بودن
+    let receiptsToRecycle = [];
+    let lettersToProcess = [];
+
+    const selectedKeys = checkboxes.map(cb => {
+        const tr = cb.closest('tr');
+        const cbId = (cb.value && cb.value !== 'on') ? cb.value : (cb.id && cb.id !== 'on' ? cb.id : null);
+        const xmlStr = tr ? (tr.getAttribute('receivexml') || '') : '';
+        const textKey = xmlStr ? xmlStr.substring(0, 200) : (tr ? tr.innerText.trim().replace(/\s+/g, ' ').substring(0, 60) : '');
+        
+        const isReceipt = xmlStr.includes('رسید خواندن') || xmlStr.includes('رسيد خواندن') || (tr && (tr.innerText.includes('رسید خواندن') || tr.innerText.includes('رسيد خواندن')));
+        const keyObj = { cbId, textKey };
+        
+        if (recycleReceipts && isReceipt) {
+            receiptsToRecycle.push({ cb, keyObj });
+        } else {
+            lettersToProcess.push({ cb, keyObj });
+        }
+        
+        return keyObj;
+    });
+
+    // اگر رسید خوانی برای بازیافت وجود دارد
+    if (receiptsToRecycle.length > 0) {
+        showNotification(`در حال انتقال ${receiptsToRecycle.length} رسید خواندن به بازیافت...`, 'info');
+        
+        // نامه‌های باقی‌مانده را در ذخیره می‌گذاریم تا بعد از رفرش ادامه دهد
+        const remainingKeys = lettersToProcess.map(item => item.keyObj);
+        if (remainingKeys.length > 0) {
+            await chrome.storage.local.set({ 
+                autoimport_batch_active: true,
+                autoimport_batch_queue: remainingKeys,
+                autoimport_batch_total: remainingKeys.length
+            });
+        }
+        
+        // تیک نامه‌هایی که رسید نیستند را برمی‌داریم تا پاک نشوند
+        lettersToProcess.forEach(item => {
+            if (item.cb) item.cb.checked = false;
+        });
+        
+        // کلیک روی دکمه بازیافت
+        const deleteBtn = document.getElementById('InVisibleBtn');
+        if (deleteBtn) {
+            deleteBtn.click();
+            return; // توقف و صبر برای رفرش شدن صفحه
+        } else {
+            showNotification('دکمه بازیافت (InVisibleBtn) پیدا نشد!', 'error');
+            // ادامه با روال عادی اگر دکمه پیدا نشد
+        }
+    }
+
+    const keysToProcess = recycleReceipts ? lettersToProcess.map(item => item.keyObj) : selectedKeys;
+
+    if (keysToProcess.length === 0) {
+        showNotification('⚠️ هیچ نامه‌ای برای ثبت گروهی انتخاب نشده است.', 'warning');
+        return;
+    }
+
+    window.autoImportQueue = keysToProcess;
+    window.batchTotal = keysToProcess.length;
+    window.isBatchProcessing = true;
+    await chrome.storage.local.set({ 
+        autoimport_batch_active: true,
+        autoimport_batch_queue: keysToProcess,
+        autoimport_batch_total: keysToProcess.length
+    });
+    
+    showNotification(`شروع پردازش جمعی برای ${keysToProcess.length} نامه...`, 'info');
+    showBatchPanel(keysToProcess.length);
+    updateBatchPanelProgress(keysToProcess.length, keysToProcess.length);
+    
+    processNextBatchItem();
+}
+
+async function processNextBatchItem() {
+    if (window.batchIsBusy) {
+        aiLogger.info('Batch process is already busy, ignoring call.');
+        return;
+    }
+    window.batchIsBusy = true;
+
+    try {
+        if (window.isBatchPaused) {
+            showNotification('ثبت گروهی متوقف شده است. روی دکمه "ادامه" کلیک کنید.', 'warning');
+            window.batchIsBusy = false;
+            return;
+        }
+
+        if (!window.autoImportQueue || window.autoImportQueue.length === 0) {
+            window.isBatchProcessing = false;
+            await chrome.storage.local.set({ 
+                autoimport_batch_active: false,
+                autoimport_batch_queue: [],
+                autoimport_batch_total: 0
+            });
+            document.getElementById('ai-batch-panel')?.remove();
+            showNotification('✅ ثبت گروهی تمام نامه‌ها با موفقیت به پایان رسید!', 'success');
+            window.batchIsBusy = false;
+            return;
+        }
+
+        const target = window.autoImportQueue.shift(); // برداشتن شناسه نامه از صف
+        const currentRunId = target.cbId || Date.now().toString(); // ایجاد یک شناسه یکتا برای این بار اجرای فرم
+        
+        // ذخیره صف جدید و وضعیت انتظار
+        await chrome.storage.local.set({ 
+            autoimport_batch_queue: window.autoImportQueue,
+            autoimport_batch_waiting: true,
+            autoimport_batch_wait_time: Date.now(),
+            autoimport_current_run_id: currentRunId
+        });
+        
+        updateBatchPanelProgress(window.batchTotal, window.autoImportQueue.length);
+        showNotification(`در حال جستجوی نامه در لیست... (باقیمانده در صف: ${window.autoImportQueue.length})`, 'info');
+
+        let currentRow = null;
+    
+    // تلاش برای پیدا کردن ردیف در جدول (ممکن است جدول در حال رفرش باشد، پس چند بار تلاش می‌کنیم)
+    for (let attempt = 0; attempt < 10; attempt++) {
+        const allRows = Array.from(document.querySelectorAll('#ResultsTable tr'));
+        for (const tr of allRows) {
+            const cb = tr.querySelector('input[type="Checkbox"], input[type="checkbox"]');
+            if (!cb) continue;
+            
+            const cbId = (cb.value && cb.value !== 'on') ? cb.value : (cb.id && cb.id !== 'on' ? cb.id : null);
+            const xmlStr = tr.getAttribute('receivexml') || '';
+            const textKey = xmlStr ? xmlStr.substring(0, 200) : tr.innerText.trim().replace(/\s+/g, ' ').substring(0, 60);
+            
+            if ((target.cbId && cbId === target.cbId) || 
+                (target.textKey && textKey && textKey.includes(target.textKey))) {
+                currentRow = tr;
+                break;
+            }
+        }
+        if (currentRow) break;
+        await sleep(500); // 0.5s wait for AJAX refresh
+    }
+
+    if (!currentRow) {
+        aiLogger.warn('Row not found for target:', target);
+        showNotification('⚠️ یک نامه در لیست پیدا نشد (احتمالاً بایگانی شده). رفتن به نامه بعدی...', 'warning');
+        setTimeout(processNextBatchItem, 1000);
+        return;
+    }
+
+    // 1. کلیک روی SearchMenuButton
+        const menuBtn = currentRow.querySelector('.SearchMenuButton');
+        if (!menuBtn) throw new Error('دکمه منو (SearchMenuButton) در این ردیف پیدا نشد.');
+        
+        menuBtn.click();
+        aiLogger.info('Clicked on SearchMenuButton');
+
+        // 2. صبر برای باز شدن جدول Operations
+        let operationsTable = null;
+        for (let i = 0; i < 20; i++) {
+            await sleep(500);
+            operationsTable = document.getElementById('Operations');
+            if (operationsTable && operationsTable.offsetParent !== null) break;
+        }
+
+        if (!operationsTable) throw new Error('منوی عملیات باز نشد.');
+
+        // 3. کلیک روی "ثبت وارده"
+        const importRegIcon = operationsTable.querySelector('.ICON-ImportRegisteration-16X16');
+        if (!importRegIcon) throw new Error('گزینه "ثبت وارده" در منو پیدا نشد.');
+        
+        const importRegRow = importRegIcon.closest('tr');
+        if (importRegRow) importRegRow.click();
+        else importRegIcon.click();
+
+        aiLogger.info('Clicked on ثبت وارده in Operations menu');
+
+        // 4. صبر برای باز شدن پاپ‌آپ (iframe)
+        let indicatorDiv = null;
+        for (let i = 0; i < 20; i++) {
+            await sleep(500);
+            for (const doc of allDocs()) {
+                indicatorDiv = doc.querySelector('.IndicatorSelectionEntityDiv[title="سند وارده"]');
+                if (indicatorDiv) break;
+            }
+            if (indicatorDiv) break;
+        }
+
+        if (!indicatorDiv) throw new Error('پاپ‌آپ انتخاب مدرک یا دکمه "سند وارده" پیدا نشد.');
+
+        // 5. کلیک روی دکمه "سند وارده"
+        indicatorDiv.click();
+        aiLogger.info('Clicked on سند وارده, form tab should open now.');
+
+        // پیام موفقیت برای این نامه
+        showNotification('تب ثبت وارده باز شد. منتظر پایان عملیات...', 'success');
+        
+        // در این مرحله تب باز است و منتظر سیگنال بسته شدن آن می‌مانیم (توسط رویداد storage)
+        
+    } catch (err) {
+        aiLogger.error('Batch processing error:', err);
+        showNotification(`❌ خطا در باز کردن فرم: ${err.message}`, 'error');
+        window.isBatchProcessing = false;
+    } finally {
+        window.batchIsBusy = false;
     }
 }
 
@@ -313,9 +592,25 @@ function mergeData(base, ocr) {
     };
 }
 
+async function checkPause() {
+    while (window.isSinglePaused) {
+        await sleep(500);
+    }
+}
+
 // --- شروع از داخل فرم (جریان جدید: گیرنده → ذخیره → OCR → پر کردن → ذخیره → ارجاع) ---
 async function startFormAutoImport() {
     if (isProcessing) { showNotification('⏳ در حال پردازش...', 'warning'); return; }
+    const storedRunId = await chrome.storage.local.get(['autoimport_current_run_id']);
+    const runId = storedRunId.autoimport_current_run_id || 'manual';
+    const sessionKey = 'autoimport_ran_' + runId;
+
+    if (sessionStorage.getItem(sessionKey)) {
+        aiLogger.info('Auto import already ran in this tab session for runId: ' + runId + '. Skipping to prevent loop.');
+        return;
+    }
+    sessionStorage.setItem(sessionKey, 'true');
+
     isProcessing = true;
     showPanel();
 
@@ -342,21 +637,14 @@ async function extractAndAnalyzeFiles(letterData) {
 
     updatePanelStep(3, 'loading', 'در حال باز کردن منوی فایل‌های ضمیمه...');
     
-    // ۱. پیدا کردن دکمه و کلیک روی آن
-    for (const doc of allDocs()) {
-        const depBtn = doc.getElementById('ulDependency');
-        if (depBtn) {
-            try { depBtn.click(); } catch(e) {}
-            break; // یک بار کلیک کافیست
-        }
-    }
-    
-    // ۲. تلاش برای پیدا کردن منوی باز شده در تمام صفحات (تا ۳۰ ثانیه)
+    // تلاش برای پیدا کردن منوی باز شده در تمام صفحات (تا ۳۰ ثانیه)
+    // همزمان اگر منو هنوز باز نشده باشد، دکمه زنجیره مدرک را پیدا کرده و روی آن کلیک می‌کنیم
     let scannedDiv = null;
     let foundDoc = null;
+    let dependencyOpened = false;
+    
     for (let i = 0; i < 30; i++) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        updatePanelStep(3, 'loading', `در حال جستجوی منوی پیوست‌ها... (تلاش ${i+1} از 30)`);
+        // ۱. بررسی می‌کنیم که آیا منوی پیوست‌ها (ScannedImages) باز شده است یا خیر
         for (const doc of allDocs()) {
             const div = doc.getElementById('ScannedImages');
             if (div && div.innerHTML.includes('DownLoad_OnClick')) {
@@ -365,10 +653,29 @@ async function extractAndAnalyzeFiles(letterData) {
                 break;
             }
         }
+        
+        // اگر باز شده بود، پایان حلقه
         if (scannedDiv) {
             aiLogger.info('✅ ScannedImages found on attempt ' + (i+1));
+            dependencyOpened = true;
             break;
         }
+        
+        // ۲. اگر هنوز باز نشده، سعی می‌کنیم روی دکمه زنجیره کلیک کنیم
+        for (const doc of allDocs()) {
+            const depBtn = doc.getElementById('ulDependency');
+            if (depBtn) {
+                try { depBtn.click(); } catch(e) {}
+                break; // فقط در یک داکیومنت کلیک می‌کنیم
+            }
+        }
+        
+        updatePanelStep(3, 'loading', `در حال انتظار برای لود زنجیره مدرک... (تلاش ${i+1} از 30)`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    if (!dependencyOpened) {
+        aiLogger.warn('دکمه زنجیره مدرک یا منوی پیوست‌ها پیدا نشد.');
     }
     
     // ۳. استخراج فایل‌ها
@@ -467,6 +774,10 @@ async function extractAndAnalyzeFiles(letterData) {
             aiLogger.info('Read receipt detected from email data, aborting registration.');
             updatePanelStep(1, 'done', 'رسید خواندن تشخیص داده شد، توقف عملیات ✓');
             showNotification('ℹ️ نامه رسید خواندن است. نیازی به ثبت و ارجاع نیست.', 'info');
+            await chrome.storage.local.set({ 
+                autoimport_batch_next: Date.now(),
+                autoimport_batch_waiting: false
+            });
             await handleAutoCloseTab();
             return;
         }
@@ -474,12 +785,14 @@ async function extractAndAnalyzeFiles(letterData) {
         updatePanelStep(1, 'done', 'اطلاعات فرم خوانده شد ✓');
 
         // مرحله ۲: فقط گیرنده (کد ۱۰ + مدیریت اداره کل) را پر کن و ذخیره کن
+        await checkPause();
         updatePanelStep(2, 'loading', 'در حال ثبت اولیه‌ (OCR هنوز انجام نشده)...');
         await setReceiverField();
         await clickSave();
         updatePanelStep(2, 'done', 'ثبت اولیه موفق ✓');
 
         // مرحله ۳: دریافت فایل‌های ضمیمه و آنالیز با هوش مصنوعی
+        await checkPause();
         const result = await extractAndAnalyzeFiles(existingData);
         let letterData = result.letterData;
         let analysisSuccess = result.analysisSuccess;
@@ -489,12 +802,14 @@ async function extractAndAnalyzeFiles(letterData) {
         }
 
         // مرحله ۴: پر کردن تمام فیلدها و ذخیره نهایی
+        await checkPause();
         updatePanelStep(4, 'loading', 'در حال پر کردن فیلدها و ذخیره نهایی...');
         await fillFormFields(letterData);
         await clickSave();
         updatePanelStep(4, 'done', 'فیلدها پر شدند و ذخیره شد ✓');
 
         // مرحله ۵: ارجاع
+        await checkPause();
         updatePanelStep(5, 'loading', 'در حال ارجاع...');
         let refName = 'كلاري محسن';
         try {
@@ -508,12 +823,37 @@ async function extractAndAnalyzeFiles(letterData) {
         updatePanelStep(5, 'done', 'نامه ارجاع داده شد ✓');
         showNotification('✅ نامه با موفقیت ثبت و ارجاع داده شد', 'success');
 
-        await handleAutoCloseTab();
+        // بررسی تنظیمات بسته شدن خودکار
+        const settings = await chrome.storage.local.get(['autoimport_autoclose']);
+        
+        if (settings.autoimport_autoclose) {
+            // اعلام پایان به تب صندوق و بستن تب
+            await chrome.storage.local.set({ 
+                autoimport_batch_next: Date.now(),
+                autoimport_batch_waiting: false
+            });
+            await handleAutoCloseTab();
+        } else {
+            showNotification('✅ نامه ثبت شد. پنجره را ببندید تا ثبت گروهی ادامه یابد.', 'info');
+            // فقط وقتی کاربر خودش تب را بست، به تب صندوق خبر بده
+            window.addEventListener('unload', () => {
+                chrome.storage.local.set({ 
+                    autoimport_batch_next: Date.now(),
+                    autoimport_batch_waiting: false
+                }).catch(()=>{});
+            });
+        }
 
     } catch (err) {
         aiLogger.error('startFormAutoImport error:', err);
         showNotification('❌ خطا: ' + err.message, 'error');
         updateCurrentStepError(err.message);
+        
+        // در صورت بروز خطا هم به صندوق اطلاع می‌دهیم تا صف متوقف نشود
+        chrome.storage.local.set({ 
+            autoimport_batch_next: Date.now(),
+            autoimport_batch_waiting: false 
+        }).catch(()=>{});
     } finally {
         isProcessing = false;
     }
@@ -1025,6 +1365,7 @@ async function downloadAndConvertFiles(filesInfo, doc) {
 }
 
 function getAllFileUrls() {
+    const results = [];
     const seen = new Set();
 
     // تابع کمکی برای ساخت URL کامل
@@ -1069,7 +1410,7 @@ function getAllFileUrls() {
 
             const isFile = rawUrl.includes('WriteBuffer') || rawUrl.includes('OutputStream') ||
                            rawUrl.includes('GetFile') || rawUrl.includes('ShowFile') ||
-                           rawUrl.includes('DF.aspx') || rawUrl.includes('fileId=');
+                           (rawUrl.includes('fileId=') && !rawUrl.includes('DF.aspx'));
             if (!isFile) continue;
 
             const fullUrl = resolveUrl(rawUrl, doc);
@@ -1243,6 +1584,7 @@ function* allDocs(rootDoc = null) {
 // ===================================================
 function showPanel() {
     document.getElementById('ai-autoimport-panel')?.remove();
+    window.isSinglePaused = false;
     const panel = document.createElement('div');
     panel.id = 'ai-autoimport-panel';
     panel.innerHTML = `
@@ -1261,8 +1603,114 @@ function showPanel() {
             </div>
             <div id="ai-extracted-data" style="display:none;"></div>
             <div id="ai-panel-msg" class="ai-panel-message"></div>
+            <button id="ai-single-pause-btn" class="ai-smart-btn" style="width:100%; justify-content:center; margin-top:10px; background:linear-gradient(135deg, #f59e0b, #d97706);">
+                ⏸ توقف موقت
+            </button>
         </div>`;
     document.body.appendChild(panel);
+
+    const pauseBtn = document.getElementById('ai-single-pause-btn');
+    if (pauseBtn) {
+        pauseBtn.addEventListener('click', (e) => {
+            window.isSinglePaused = !window.isSinglePaused;
+            if (window.isSinglePaused) {
+                e.target.innerHTML = '▶️ ادامه فرآیند';
+                e.target.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            } else {
+                e.target.innerHTML = '⏸ توقف موقت';
+                e.target.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+            }
+        });
+    }
+}
+
+function showBatchPanel(total) {
+    if (document.getElementById('ai-batch-panel')) return; // جلوگیری از رفرش پیاپی پنل در صورت وجود
+    
+    window.isBatchPaused = false;
+    const panel = document.createElement('div');
+    panel.id = 'ai-batch-panel';
+    panel.innerHTML = `
+        <div class="ai-panel-header">
+            <span>🤖 وضعیت ثبت گروهی</span>
+            <button onclick="this.closest('#ai-batch-panel').remove()">✕</button>
+        </div>
+        <div class="ai-panel-body" style="text-align:center;">
+            <div id="ai-batch-status" style="margin-bottom:10px; font-weight:bold; color:#1e40af;">وضعیت: در حال پردازش...</div>
+            <div id="ai-batch-progress" style="margin-bottom:15px; font-size:14px; color:#475569;">
+                در انتظار شروع...
+            </div>
+            <div style="background:#e2e8f0; border-radius:4px; height:8px; width:100%; margin-bottom:15px; overflow:hidden;">
+                <div id="ai-batch-progress-bar" style="background:linear-gradient(135deg, #6366f1, #8b5cf6); width:0%; height:100%; transition:width 0.3s;"></div>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button id="ai-batch-pause-btn" class="ai-smart-btn" style="flex:1; justify-content:center; background:linear-gradient(135deg, #f59e0b, #d97706);">
+                    ⏸ توقف موقت
+                </button>
+                <button id="ai-batch-stop-btn" class="ai-smart-btn" style="flex:1; justify-content:center; background:linear-gradient(135deg, #ef4444, #b91c1c);">
+                    ⏹ پایان
+                </button>
+            </div>
+        </div>`;
+    document.body.appendChild(panel);
+
+    const pauseBtn = document.getElementById('ai-batch-pause-btn');
+    if (pauseBtn) {
+        pauseBtn.addEventListener('click', async (e) => {
+            window.isBatchPaused = !window.isBatchPaused;
+            await chrome.storage.local.set({ autoimport_batch_paused: window.isBatchPaused });
+            if (window.isBatchPaused) {
+                e.target.innerHTML = '▶️ ادامه';
+                e.target.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                document.getElementById('ai-batch-status').textContent = 'وضعیت: متوقف شده';
+            } else {
+                e.target.innerHTML = '⏸ توقف موقت';
+                e.target.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+                document.getElementById('ai-batch-status').textContent = 'وضعیت: در حال پردازش...';
+                
+                // در صورت وجود نامه در صف و منتظر نبودن، ادامه بده
+                const stored = await chrome.storage.local.get(['autoimport_batch_waiting', 'autoimport_batch_wait_time']);
+                const isWaiting = stored.autoimport_batch_waiting;
+                const waitTime = stored.autoimport_batch_wait_time || 0;
+                const isTimeout = (Date.now() - waitTime) > 120000;
+                
+                if (!isWaiting || isTimeout) {
+                    processNextBatchItem();
+                }
+            }
+        });
+    }
+
+    const stopBtn = document.getElementById('ai-batch-stop-btn');
+    if (stopBtn) {
+        stopBtn.addEventListener('click', async () => {
+            window.isBatchProcessing = false;
+            window.autoImportQueue = [];
+            window.isBatchPaused = false;
+            await chrome.storage.local.set({ 
+                autoimport_batch_active: false,
+                autoimport_batch_queue: [],
+                autoimport_batch_total: 0,
+                autoimport_batch_paused: false,
+                autoimport_batch_waiting: false
+            });
+            panel.remove();
+            showNotification('⏹ ثبت گروهی با موفقیت متوقف شد.', 'info');
+        });
+    }
+}
+
+function updateBatchPanelProgress(total, remaining) {
+    const statusEl = document.getElementById('ai-batch-progress');
+    const barEl = document.getElementById('ai-batch-progress-bar');
+    if (statusEl) {
+        const processed = total - remaining;
+        statusEl.textContent = `پردازش شده: ${processed} از ${total} (باقی‌مانده: ${remaining})`;
+        if (barEl) {
+            const percent = total > 0 ? (processed / total) * 100 : 0;
+            barEl.style.width = `${percent}%`;
+        }
+    }
 }
 
 function updatePanelStep(n, state, msg) {
@@ -1396,6 +1844,14 @@ function isDialogLike(node) {
 chrome.storage.onChanged.addListener((changes) => {
     if (changes.autoimport_autoconfirm) {
         changes.autoimport_autoconfirm.newValue ? enableAutoConfirm() : disableAutoConfirm();
+    }
+    
+    // فاز ۳: دریافت سیگنال از فرم تب برای پردازش نامه بعدی در ثبت گروهی
+    if (changes.autoimport_batch_next) {
+        if (window.isBatchProcessing) {
+            aiLogger.info('Received batch_next signal, waiting 1s before next item...');
+            setTimeout(processNextBatchItem, 1000);
+        }
     }
 });
 

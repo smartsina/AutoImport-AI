@@ -1,7 +1,7 @@
 /* ===== AutoImport AI - Injected Styles ===== */
 
 /* پنل اصلی */
-#ai-autoimport-panel {
+#ai-autoimport-panel, #ai-batch-panel {
     position: fixed;
     top: 60px;
     left: 20px;
