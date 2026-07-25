@@ -455,10 +455,25 @@ async function triggerAutoEmptyWait() {
 }
 
 async function receiveFromSimadAndRefresh(timerEl) {
-    if (timerEl) timerEl.textContent = 'در حال دریافت از سیماد...';
+    if (timerEl) timerEl.textContent = 'در حال ارتباط با تب صندوق...';
     try {
         const parentDoc = window.parent.document;
         
+        // Find tabs
+        const tabs = Array.from(parentDoc.querySelectorAll('li[id^="TabItem"]'));
+        const receiveTab = tabs.find(t => t.innerText.includes('صندوقهای دریافت') || t.innerText.includes('صندوقهاي دریافت'));
+        const inboxTab = tabs.find(t => t.innerText.includes('دریافت شده ها') || t.innerText.includes('دريافت شده ها'));
+        
+        if (receiveTab) {
+            const receiveLink = receiveTab.querySelector('a') || receiveTab;
+            receiveLink.click();
+            aiLogger.info('Switched to Receive Mailboxes tab');
+            
+            // Wait for iframe to load the new content
+            if (timerEl) timerEl.textContent = 'در حال لود صندوق دریافت...';
+            await new Promise(r => setTimeout(r, 2000));
+        }
+
         // Find the Receive button recursively
         function findReceiveBtn(doc) {
             const btn = doc.getElementById('ReceiveOperationBtn') || doc.querySelector('[name="ReceiveOperationBtn"]');
@@ -512,22 +527,21 @@ async function receiveFromSimadAndRefresh(timerEl) {
             if (timerEl) timerEl.textContent = 'منتظر اتمام دریافت...';
             await new Promise(r => setTimeout(r, 6000));
         } else {
-            aiLogger.warn('دکمه دریافت (ReceiveOperationBtn) در هیچ تبی پیدا نشد. آیا تب صندوق دریافت باز است؟');
+            aiLogger.warn('دکمه دریافت (ReceiveOperationBtn) پیدا نشد.');
+        }
+
+        // Switch back to "دریافت شده ها"
+        if (inboxTab) {
+            const inboxLink = inboxTab.querySelector('a') || inboxTab;
+            inboxLink.click();
+            aiLogger.info('Switched back to Inbox tab');
+            await new Promise(r => setTimeout(r, 1500));
         }
     } catch (e) {
         aiLogger.error('Error during Simad receive:', e);
     }
     
-    // Switch back to "دریافت شده ها" and refresh
     if (timerEl) timerEl.textContent = 'در حال رفرش...';
-    
-    try {
-        const tabs = Array.from(window.parent.document.querySelectorAll('a[data-toggle="tab"]'));
-        const receivedTab = tabs.find(a => a.innerText.includes('دریافت شده ها') || a.innerText.includes('صندوقهای دریافت') === false);
-        // Sometimes the tab is just called by its indicator name, so we can also just activate the tab that contains the current iframe
-        // But the easiest is to just refresh the current frame which will bring it back to focus usually.
-    } catch (e) {}
-
     const refreshBtn = document.getElementById('RefreshActiveFrameBtn') || document.querySelector('[onclick*="RefreshActiveFrame"]');
     if (refreshBtn) {
         refreshBtn.click();
