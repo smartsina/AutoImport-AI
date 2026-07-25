@@ -1,0 +1,21 @@
+# AutoImport AI - OCR Server Requirements (Windows Version)
+
+# Web server
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# PaddleOCR (بهترین پشتیبانی از فارسی در ویندوز)
+paddlepaddle>=2.6.0  # نسخه CPU
+paddleocr>=2.7.0
+
+# Image processing
+Pillow>=10.0.0
+
+# PDF support (اولویت اول)
+pymupdf>=1.24.0
+
+# PDF fallback
+pdf2image>=1.17.0
+
+# Tesseract wrapper (fallback دوم)
+pytesseract>=0.3.13

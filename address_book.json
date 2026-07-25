@@ -1,0 +1,578 @@
+[
+  {
+    "name": "\tدانشگاه جامع علمی کاربردی استان فارس",
+    "email": "delmik@fars.gov.ir"
+  },
+  {
+    "name": "آزمایشگاه فنی و مکانیک خاک استان فارس",
+    "email": "meka@fars.gov.ir"
+  },
+  {
+    "name": "آموزش و پرورش خوزستان",
+    "email": "eorgkhozestan@medu.ir"
+  },
+  {
+    "name": "اتاق تعاون استان فارس",
+    "email": "ottavon@fars.gov.ir"
+  },
+  {
+    "name": "اتحادیه تعاونی دهیاریهای فارس",
+    "email": "tdehyar@fars.gov.ir"
+  },
+  {
+    "name": "اجرای احکام مدنی دادگستری شیراز",
+    "email": "ejrayemadanishiraz@eadl.ir"
+  },
+  {
+    "name": "اداره آموزش و پرورش عشایری فارس",
+    "email": "amozpash@fars.gov.ir"
+  },
+  {
+    "name": "اداره منابع طبیعی و آبخیزداری شهرستان شیراز",
+    "email": "manabetabiee_shz@shiraz.gov.ir"
+  },
+  {
+    "name": "اداره کل آموزش فنی و حرفه ای فارس",
+    "email": "fanhr@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل آموزش و پرورش استان فارس",
+    "email": "amozp@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل ارتباطات زیرساخت استان فارس",
+    "email": "zirsa@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل ارتباطات و فناوری اطلاعات استــان فارس",
+    "email": "fanav@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل استاندارد فارس",
+    "email": "estnd@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل اموال و املاک بنیاد مستضعفان فارس",
+    "email": "mostaz@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل امور اتباع و مهاجرین خارجی استانداری فارس",
+    "email": "atbafars@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل امور اقتصادی و دارایی استان فارس",
+    "email": "fars@veeghtesad.gov.ir"
+  },
+  {
+    "name": "اداره کل امور اقتصادی و دارایی استان فارس",
+    "email": "fars@veeghtesad.gov.ir"
+  },
+  {
+    "name": "اداره کل امور اقتصادی و دارایی استان فارس",
+    "email": "darai@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل امور عشایر استان فارس",
+    "email": "omash@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل امور مالیاتی فارس",
+    "email": "omaliat@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل انتقال خون استان فارس",
+    "email": "enkho@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل بنیاد مسکن انقلاب اسلامی استان فارس",
+    "email": "bonmas@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل بهزیستی فارس",
+    "email": "behzic@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل بیمه سلامت استان فارس",
+    "email": "khama@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل تامین اجتماعی استان فارس",
+    "email": "tamin@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل تامین اجتماعی نیروهای مسلح فارس",
+    "email": "tamin_mos@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل تبلیغات اسلامی استان فارس",
+    "email": "tblgh@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل تعاون، کار و رفاه اجتماعی استان فارس",
+    "email": "karmo@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل تعزیرات حکومتی استان فارس",
+    "email": "thoko@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل تنظیم مقررات و ارتباطات رادیویی منطقه جنوب",
+    "email": "shiraz@satanzim.gov.ir"
+  },
+  {
+    "name": "اداره کل ثبت احوال استان فارس",
+    "email": "sbahv@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل ثبت احوال استان فارس",
+    "email": "sbahv@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل ثبت اسناد و املاک استان فارس",
+    "email": "sbasn@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل ثبت اسناد و املاک استان فارس",
+    "email": "sbasn@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل حفاظت محیط زیست استان فارس",
+    "email": "mzist@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل حفظ آثار و نشر ارزش های دفاع مقدس استان فارس",
+    "email": "defamo@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل دامپزشکی استان فارس",
+    "email": "dampe@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل راه آهن استان فارس",
+    "email": "rahah@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل راه و شهرسازی لارستان",
+    "email": "rahlar@larestan.gov.ir"
+  },
+  {
+    "name": "اداره کل راه وشهرسازی استان فارس",
+    "email": "maskan@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل راهداری و حمل و نقل جاده ای استان فارس",
+    "email": "hamlo@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل زندان ها و اقدامات تامینی و تربیتی استان فارس",
+    "email": "zend@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل فرهنگ و ارشاد اسلامی فارس",
+    "email": "ersha@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل منابع طبیعی و آبخیزداری استان فارس",
+    "email": "manta@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل نوسازی مدارس استان فارس",
+    "email": "nmada@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل هواشناسی فارس",
+    "email": "havash@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل ورزش وجوانان فارس",
+    "email": "tarba@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل پزشکی قانونی استان فارس",
+    "email": "pezgh@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل پست استان فارس",
+    "email": "post@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل کانون پرورش فکری کودکان ونوجوانان فارس",
+    "email": "kanop@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل کتابخانه های عمومی استان فارس",
+    "email": "ketabk@fars.gov.ir"
+  },
+  {
+    "name": "اداره کل گمرک استان فارس",
+    "email": "ghomr@fars.gov.ir"
+  },
+  {
+    "name": "استانداری فارس",
+    "email": "ostan@fars.gov.ir"
+  },
+  {
+    "name": "امور اصناف فارس- اتاق اصناف مرکز استان فارس",
+    "email": "asnafa@fars.gov.ir"
+  },
+  {
+    "name": "انجمن خیرین مسکن ساز فارس",
+    "email": "maskan.ang@fars.gov.ir"
+  },
+  {
+    "name": "اورژانس فارس - مرکز مدیریت حوادث و فوریت های پزشکی فارس",
+    "email": "dpeze_org@fars.gov.ir"
+  },
+  {
+    "name": "اوقاف فارس",
+    "email": "oghaf@fars.gov.ir"
+  },
+  {
+    "name": "اوقاف فارس",
+    "email": "oghaf@fars.gov.ir"
+  },
+  {
+    "name": "بانک توسعه تعاون فارس",
+    "email": "banktt@fars.gov.ir"
+  },
+  {
+    "name": "بانک سپه مدیریت شعب منطقه فارس",
+    "email": "basep@fars.gov.ir"
+  },
+  {
+    "name": "بانک صادرات ایران سرپرستی مدیریت شعب استان فارس",
+    "email": "fars@basaderat.gov.ir"
+  },
+  {
+    "name": "بانک صنعت و معدن استان فارس",
+    "email": "bsanat@fars.gov.ir"
+  },
+  {
+    "name": "بانک ملت فارس",
+    "email": "bamelat@fars.gov.ir"
+  },
+  {
+    "name": "بنیاد شهید و امور ایثارگران فارس",
+    "email": "bonsh@fars.gov.ir"
+  },
+  {
+    "name": "بنیاد شهید و امور ایثارگران فارس",
+    "email": "bonsh@fars.gov.ir"
+  },
+  {
+    "name": "بنیاد شهید و امور ایثارگران فارس",
+    "email": "bonsh@fars.gov.ir"
+  },
+  {
+    "name": "بنیاد نخبگان استان فارس",
+    "email": "bonokh@fars.gov.ir"
+  },
+  {
+    "name": "جمعیت هلال احمر استان فارس",
+    "email": "helal@fars.gov.ir"
+  },
+  {
+    "name": "جهاد دانشگاهی استان فارس",
+    "email": "djahad@fars.gov.ir"
+  },
+  {
+    "name": "حرم مطهر حضرت شاهچراغ (ع)",
+    "email": "shcheragh@shiraz.gov.ir"
+  },
+  {
+    "name": "حوزه هنری فارس",
+    "email": "hhonari@fars.gov.ir"
+  },
+  {
+    "name": "خانه صنعت معدن استان فارس",
+    "email": "khsanat@fars.gov.ir"
+  },
+  {
+    "name": "خبرگزاری جمهوری اسلامی ایرنا استان فارس",
+    "email": "khabgozar@fars.gov.ir"
+  },
+  {
+    "name": "دادسرای عمومی و انقلاب استان فارس",
+    "email": "dadfars@eadl.ir"
+  },
+  {
+    "name": "دادگستری کل استان فارس",
+    "email": "fars@eadl.ir"
+  },
+  {
+    "name": "دانشکده علوم پزشکی گراش",
+    "email": "dpeze_grsh@gerash.gov.ir"
+  },
+  {
+    "name": "دانشگاه آزاد اسلامی استان فارس",
+    "email": "azadun@fars.gov.ir"
+  },
+  {
+    "name": "دانشگاه سلمان فارسی کازرون",
+    "email": "salman_kzrn@kazeroon.gov.ir"
+  },
+  {
+    "name": "دانشگاه شیراز",
+    "email": "dshiraz@fars.gov.ir"
+  },
+  {
+    "name": "دانشگاه صنعتی شیراز",
+    "email": "dsanati_shz@shiraz.gov.ir"
+  },
+  {
+    "name": "دانشگاه علم و صنعت",
+    "email": "dan-elmsanat@tehran.gov.ir"
+  },
+  {
+    "name": "دانشگاه علوم پزشکی شیراز",
+    "email": "dpeze@shiraz.gov.ir"
+  },
+  {
+    "name": "دانشگاه علوم پزشکی فسا",
+    "email": "pezfas@fasa.gov.ir"
+  },
+  {
+    "name": "دانشگاه علوم پزشکی لارستان",
+    "email": "dpeze_lar@larestan.gov.ir"
+  },
+  {
+    "name": "دانشگاه علوم پزشکی و خدمات بهداشتی درمانی جهرم",
+    "email": "dpeze_jah@jahrom.gov.ir"
+  },
+  {
+    "name": "دانشگاه ملی مهارت واحد استان فارس (دانشکده پسران شماره یک شیراز (شهید باهنر))",
+    "email": "dbahonar@shiraz.gov.ir"
+  },
+  {
+    "name": "دانشگاه پیام نور استان فارس",
+    "email": "dpnu_fa@fars.gov.ir"
+  },
+  {
+    "name": "دبیرخانه بانک مرکزی جمهوری اسلامی ایران",
+    "email": "dabirkhaneh@bamarkazi.gov.ir"
+  },
+  {
+    "name": "دبیرخانه حقوقی بانک ملی - اداره امور شعب استان فارس",
+    "email": "bmeliho@fars.gov.ir"
+  },
+  {
+    "name": "دفتر امام جمعه شیراز",
+    "email": "sh-emamjomeh@fars.gov.ir"
+  },
+  {
+    "name": "دفتر دکتر فرهاد طهماسبی نماینده نی ریز،استهبان و بختگان در مجلس شورای اسلامی",
+    "email": "majles_bakht@bakhtegan.gov.ir"
+  },
+  {
+    "name": "دفتر نظارت و بازرسی شورای نگهبان استان فارس",
+    "email": "nezarat@fars.gov.ir"
+  },
+  {
+    "name": "دفتر نماینده شهرستان های سپیدان و بیضا در مجلس شورای اسلامی",
+    "email": "namayandeh@sepidan.gov.ir"
+  },
+  {
+    "name": "دفتر نماینده مجلس شهرستان های فیروزآباد قیرکارزین و فراشبند",
+    "email": "namayande@firoozabad.gov.ir"
+  },
+  {
+    "name": "دیوان محاسبات ",
+    "email": "divmo@fars.gov.ir"
+  },
+  {
+    "name": "دیوان محاسبات استان فارس",
+    "email": "dabirkhaneh@bamarkazi.gov.ir"
+  },
+  {
+    "name": "راهبر ارشد شبکه دولت استان فارس",
+    "email": "admin@fars.gov.ir"
+  },
+  {
+    "name": "سازمان تعاون روستایی استان فارس",
+    "email": "tavon@fars.gov.ir"
+  },
+  {
+    "name": "سازمان ثبت احوال استان مرودشت",
+    "email": "sbahv_marv@marvdasht.gov.ir"
+  },
+  {
+    "name": "سازمان جمع آوری و فروش اموال تملیکی استان فارس",
+    "email": "tamlik@fars.gov.ir"
+  },
+  {
+    "name": "سازمان جهاد کشاورزی استان فارس",
+    "email": "gahad@fars.gov.ir"
+  },
+  {
+    "name": "سازمان صنعت،معدن و تجارت فارس",
+    "email": "sanay@fars.gov.ir"
+  },
+  {
+    "name": "سازمان قضایی نیروهای مسلح استان فارس",
+    "email": "ghazamos@fars.gov.ir"
+  },
+  {
+    "name": "سازمان مدیریت و برنامه ریزی استان فارس",
+    "email": "modirb@fars.gov.ir"
+  },
+  {
+    "name": "سازمان مدیریت و برنامه ریزی استان فارس",
+    "email": "modirb@fars.gov.ir"
+  },
+  {
+    "name": "سازمان نظام دام پزشکی استان فارس",
+    "email": "nezamdam@fars.gov.ir"
+  },
+  {
+    "name": "سازمان نظام صنفی رایانه ای استان فارس",
+    "email": "nezam_rayaneh@fars.gov.ir"
+  },
+  {
+    "name": "سازمان نظام مهندسی ساختمان استان فارس",
+    "email": "nezamfars@fars.gov.ir"
+  },
+  {
+    "name": "سازمان نظام مهندسی کشاورزی و منابع طبیعی استان فارس",
+    "email": "nezamkeshmt@fars.gov.ir"
+  },
+  {
+    "name": "سازمان نظام پزشکی فارس",
+    "email": "nezamp@fars.gov.ir"
+  },
+  {
+    "name": "سازمان همیاری شهرداری های استان فارس",
+    "email": "shahrham@fars.gov.ir"
+  },
+  {
+    "name": "ستاد اقامه نماز استان فارس",
+    "email": "egnamaz@fars.gov.ir"
+  },
+  {
+    "name": "ستاد برگزاری نماز جمعه شیراز",
+    "email": "sh-namazjomeh@fars.gov.ir"
+  },
+  {
+    "name": "سپاه فجر استان فارس",
+    "email": "sepahfajr@fars.gov.ir"
+  },
+  {
+    "name": "شرکت خطوط لوله و مخابرات نفت فارس",
+    "email": "nioptc@fars.gov.ir"
+  },
+  {
+    "name": "شرکت مخابرات ایران منطقه فارس",
+    "email": "mokha@fars.gov.ir"
+  },
+  {
+    "name": "شرکت ملی پخش فرآورده های نفتی ناحیه مرکزی شیراز",
+    "email": "pafna_shz@shiraz.gov.ir"
+  },
+  {
+    "name": "شرکت پخش فراورده های نفتی فارس",
+    "email": "pafna@fars.gov.ir"
+  },
+  {
+    "name": "شهرداری شیراز",
+    "email": "shahr@shiraz.gov.ir"
+  },
+  {
+    "name": "شهرداری فسا",
+    "email": "shahr_fasa@fasa.gov.ir"
+  },
+  {
+    "name": "شهرداری مرودشت",
+    "email": "shahr_marv@marvdasht.gov.ir"
+  },
+  {
+    "name": "شورای اسلامی شهر شیراز",
+    "email": "shora_shz@shiraz.gov.ir"
+  },
+  {
+    "name": "شورای حل اختلاف استان فارس",
+    "email": "shorafars@eadl.ir"
+  },
+  {
+    "name": "صداوسیمای مرکز فارس",
+    "email": "sedsi@fars.gov.ir"
+  },
+  {
+    "name": "صندوق بازنشستگی کشوری استان فارس",
+    "email": "sabaz@fars.gov.ir"
+  },
+  {
+    "name": "فرمانداری شیراز",
+    "email": "farman@shiraz.gov.ir"
+  },
+  {
+    "name": "مدیریت حوزه علمیه استان فارس",
+    "email": "hoze@fars.gov.ir"
+  },
+  {
+    "name": "مدیریت شعب بانک ملی استان فارس",
+    "email": "bamel@fars.gov.ir"
+  },
+  {
+    "name": "مرکز بهداشت شهدای والفجر شهرستان شیراز",
+    "email": "valfajr_shiraz.gov.ir@shiraz.gov.ir"
+  },
+  {
+    "name": "مرکز خدمات حوزه های علمیه استان فارس",
+    "email": "fars@csis.gov.ir"
+  },
+  {
+    "name": "مرکز منطقه 3 سازمان بازرسی کل کشور و بازرسی کل استان فارس",
+    "email": "bazrasi@fars.gov.ir"
+  },
+  {
+    "name": "معاونت اجتماعی و پیشگیری از وقوع جرم دادگستری فارس",
+    "email": "pishgirifars@eadl.ir"
+  },
+  {
+    "name": "معاونت بهداشت دانشگاه علوم پزشکی فسا",
+    "email": "mobeh_fasa@fasa.gov.ir"
+  },
+  {
+    "name": "معاونت بهداشتی دانشگاه علوم پزشکی جهرم",
+    "email": "behdasht_jah@jahrom.gov.ir"
+  },
+  {
+    "name": "معاونت درمان دانشگاه علوم پزشکی جهرم",
+    "email": "darman_jah@jahrom.gov.ir"
+  },
+  {
+    "name": "معاونت درمان دانشگاه علوم پزشکی فسا",
+    "email": "modar_fasa@fasa.gov.ir"
+  },
+  {
+    "name": "معاونت غذا و دارو دانشگاه علوم پزشکی فسا",
+    "email": "mghda_fasa@fasa.gov.ir"
+  },
+  {
+    "name": "میراث فرهنگی ",
+    "email": "miras@fars.gov.ir"
+  },
+  {
+    "name": "نماینده مردم شیراز در مجلس شورای اسلامی - آقای عزیزی",
+    "email": "namayande_azizi@shiraz.gov.ir"
+  },
+  {
+    "name": "نماینده مردم شیراز در مجلس شورای اسلامی - آقای قادری",
+    "email": "namayande_ghaderi@shiraz.gov.ir"
+  },
+  {
+    "name": "نماینده مردم شیراز در مجلس شورای اسلامی_آقای حسینی",
+    "email": "namayande_hoseini@shiraz.gov.ir"
+  },
+  {
+    "name": "وزارت آموزش و پرورش",
+    "email": "eorgfars@medu.ir"
+  },
+  {
+    "name": "پارک علم و فناوری فارس",
+    "email": "parkelmfana@fars.gov.ir"
+  },
+  {
+    "name": "کانون کارشناسان رسمی دادگستری استان فارس",
+    "email": "kkrdf@fars.gov.ir"
+  }
+]

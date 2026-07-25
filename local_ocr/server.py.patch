@@ -1,0 +1,157 @@
+--- server.py	2026-07-25 07:10:00.000000000 +0330
++++ server_windows.py	2026-07-25 07:15:00.000000000 +0330
+@@ -21,114 +21,46 @@
+ 
+ # وضعیت موتورهای OCR
+ engines = {
+-    "apple_vision_ocrmac": False,
+-    "apple_vision_pyobjc": False,
+-    "easyocr": False,
++    "paddleocr": False,
+     "tesseract": False,
+     "pymupdf": False,
+ }
+-_easyocr_reader = None
++_paddle_reader = None
+ 
+ 
+ def init_engines():
+-    global _easyocr_reader, engines
++    global _paddle_reader, engines
+ 
+-    # Apple Vision از طریق ocrmac
+-    try:
+-        import ocrmac
+-        engines["apple_vision_ocrmac"] = True
+-        logger.info("✅ Apple Vision (ocrmac) آماده است")
+-    except Exception:
+-        logger.warning("⚠️  ocrmac نصب نشده")
+-
+-    # Apple Vision از طریق pyobjc
+-    if not engines["apple_vision_ocrmac"]:
+-        try:
+-            import Vision
+-            engines["apple_vision_pyobjc"] = True
+-            logger.info("✅ Apple Vision (pyobjc) آماده است")
+-        except Exception:
+-            logger.warning("⚠️  pyobjc Vision نصب نشده")
+-
+-    # EasyOCR
+-    try:
+-        import easyocr
+-        logger.info("⏳ EasyOCR در حال بارگذاری مدل فارسی...")
+-        _easyocr_reader = easyocr.Reader(['fa', 'en'], gpu=False, verbose=False)
+-        engines["easyocr"] = True
+-        logger.info("✅ EasyOCR (فارسی+انگلیسی) آماده است")
+-    except Exception as e:
+-        logger.warning(f"⚠️  EasyOCR: {e}")
++    # PaddleOCR (Windows CPU)
++    try:
++        from paddleocr import PaddleOCR
++        logger.info("⏳ PaddleOCR در حال بارگذاری مدل فارسی (CPU)...")
++        _paddle_reader = PaddleOCR(use_angle_cls=True, lang='fa', use_gpu=False, show_log=False)
++        engines["paddleocr"] = True
++        logger.info("✅ PaddleOCR (فارسی) آماده است")
++    except Exception as e:
++        logger.warning(f"⚠️  PaddleOCR نصب نشده یا خطا دارد: {e}")
+ 
+     # Tesseract
+     try:
+         import pytesseract
+         pytesseract.get_tesseract_version()
+         engines["tesseract"] = True
+         logger.info("✅ Tesseract آماده است")
+     except Exception:
+         logger.warning("⚠️  Tesseract نصب نشده")
+ 
+     # PyMuPDF برای PDF
+     try:
+         import fitz
+         engines["pymupdf"] = True
+         logger.info("✅ PyMuPDF (PDF) آماده است")
+     except Exception:
+         logger.warning("⚠️  PyMuPDF نصب نشده")
+ 
+     active = [k for k, v in engines.items() if v]
+     if not active:
+         logger.error("❌ هیچ موتور OCR آماده نیست! install.bat را اجرا کنید.")
+     else:
+         logger.info(f"📡 موتورهای فعال: {', '.join(active)}")
+ 
+ 
+-def ocr_apple_vision_ocrmac(image_path):
+-    from ocrmac.ocrmac import OCR
+-    # Apple Vision از fa-IR پشتیبانی نمی‌کند؛ ar-SA برای فارسی هم کار می‌کند
+-    results = OCR(
+-        image_path,
+-        language_preference=['ar-SA', 'en-US'],
+-        recognition_level='accurate'
+-    ).recognize()
+-    texts = []
+-    for r in results:
+-        if isinstance(r, (list, tuple)) and len(r) >= 1:
+-            text = r[0] if isinstance(r[0], str) else str(r[0])
+-            conf = r[1] if len(r) > 1 and isinstance(r[1], (int, float)) else 1.0
+-            if conf > 0.1 and text.strip():
+-                texts.append(text)
+-    return '\n'.join(texts)
+-
+-
+-def ocr_apple_vision_pyobjc(image_path):
+-    import Vision
+-    from Foundation import NSURL
+-    url = NSURL.fileURLWithPath_(str(image_path))
+-    req = Vision.VNRecognizeTextRequest.alloc().init()
+-    req.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
+-    req.setUsesLanguageCorrection_(True)
+-    try:
+-        supported, _ = req.supportedRecognitionLanguagesAndReturnError_(None)
+-        preferred = [l for l in (supported or []) if any(x in str(l) for x in ['ar', 'fa', 'en'])]
+-        if preferred:
+-            req.setRecognitionLanguages_(preferred)
+-    except Exception:
+-        pass
+-    handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(url, None)
+-    handler.performRequests_error_([req], None)
+-    return '\n'.join(obs.topCandidates_(1)[0].string() for obs in (req.results() or []) if obs.topCandidates_(1))
+-
+-
+-def ocr_easyocr(image_path):
+-    global _easyocr_reader
+-    if _easyocr_reader is None:
+-        import easyocr
+-        _easyocr_reader = easyocr.Reader(['fa', 'en'], gpu=False, verbose=False)
+-    results = _easyocr_reader.readtext(str(image_path), detail=1)
+-    results.sort(key=lambda x: x[0][0][1])
+-    return '\n'.join(r[1] for r in results if r[2] > 0.2)
++def ocr_paddle(image_path):
++    global _paddle_reader
++    if _paddle_reader is None:
++        from paddleocr import PaddleOCR
++        _paddle_reader = PaddleOCR(use_angle_cls=True, lang='fa', use_gpu=False, show_log=False)
++    results = _paddle_reader.ocr(str(image_path), cls=True)
++    texts = []
++    if results and len(results) > 0 and results[0]:
++        for line in results[0]:
++            if isinstance(line, list) and len(line) >= 2:
++                # line format: [ [[x,y], [x,y], ...], (text, confidence) ]
++                text, conf = line[1]
++                if conf > 0.3:
++                    texts.append(text)
++    return '\n'.join(texts)
+ 
+ 
+ def ocr_tesseract(image_path):
+@@ -161,10 +93,8 @@
+ def run_ocr(image_path):
+     errors = []
+     for name, fn in [
+-        ("apple_vision_ocrmac", ocr_apple_vision_ocrmac),
+-        ("apple_vision_pyobjc", ocr_apple_vision_pyobjc),
+-        ("easyocr",             ocr_easyocr),
+-        ("tesseract",           ocr_tesseract),
++        ("paddleocr", ocr_paddle),
++        ("tesseract", ocr_tesseract),
+     ]:
+         if not engines[name]:
+             continue
