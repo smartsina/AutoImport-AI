@@ -352,7 +352,12 @@ async function handleAutoEmptyImport(isResuming = false) {
         return;
     }
 
-    await chrome.storage.local.set({ autoimport_autoempty_active: true });
+    try {
+        await chrome.storage.local.set({ autoimport_autoempty_active: true });
+    } catch (e) {
+        if (e.message && e.message.includes('Extension context invalidated')) return;
+        aiLogger.error('Storage set error:', e);
+    }
 
     const checkboxes = Array.from(document.querySelectorAll('#ResultsTable tr input[type="Checkbox"], #ResultsTable tr input[type="checkbox"]'));
     if (checkboxes.length === 0) {
