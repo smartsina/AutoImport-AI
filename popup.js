@@ -82,10 +82,11 @@ async function loadConfigForm() {
         setVal('cfg-ref-role',        cfg.referralPersonRole  || 'مدير كل');
 
         // تنظیم auto-confirm و auto-close
-        const localSettings = await chrome.storage.local.get(['autoimport_autoconfirm', 'autoimport_autoclose', 'autoimport_recycle_receipts']);
+        const localSettings = await chrome.storage.local.get(['autoimport_autoconfirm', 'autoimport_autoclose', 'autoimport_recycle_receipts', 'autoimport_autoempty_interval']);
         document.getElementById('cfg-autoconfirm').checked = !!localSettings.autoimport_autoconfirm;
         document.getElementById('cfg-autoclose').checked = !!localSettings.autoimport_autoclose;
         document.getElementById('cfg-recycle-receipts').checked = !!localSettings.autoimport_recycle_receipts;
+        document.getElementById('cfg-autoempty-interval').value = localSettings.autoimport_autoempty_interval || 5;
 
     } catch (e) { log.error('loadConfigForm', e); }
 }
@@ -167,10 +168,12 @@ function setupConfigSave() {
         const autoConfirm = document.getElementById('cfg-autoconfirm').checked;
         const autoClose = document.getElementById('cfg-autoclose').checked;
         const recycleReceipts = document.getElementById('cfg-recycle-receipts').checked;
+        const autoEmptyInterval = parseInt(document.getElementById('cfg-autoempty-interval').value) || 5;
         await chrome.storage.local.set({ 
             autoimport_autoconfirm: autoConfirm,
             autoimport_autoclose: autoClose,
-            autoimport_recycle_receipts: recycleReceipts
+            autoimport_recycle_receipts: recycleReceipts,
+            autoimport_autoempty_interval: autoEmptyInterval
         });
     });
 }
