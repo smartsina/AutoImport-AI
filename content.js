@@ -352,6 +352,8 @@ async function handleAutoEmptyImport(isResuming = false) {
         return;
     }
 
+    await chrome.storage.local.set({ autoimport_autoempty_active: true });
+
     const checkboxes = Array.from(document.querySelectorAll('#ResultsTable tr input[type="Checkbox"], #ResultsTable tr input[type="checkbox"]'));
     if (checkboxes.length === 0) {
         // هیچ نامه‌ای نیست، منتظر بمان و رفرش کن
@@ -361,8 +363,7 @@ async function handleAutoEmptyImport(isResuming = false) {
 
     // انتخاب تمام نامه‌ها
     checkboxes.forEach(cb => cb.checked = true);
-
-    await chrome.storage.local.set({ autoimport_autoempty_active: true });
+    
     showAutoEmptyOverlay();
 
     // شروع ثبت جمعی
