@@ -455,16 +455,15 @@ async function receiveFromSimadAndRefresh(timerEl) {
     try {
         const parentDoc = window.parent.document;
         
-        // Find row containing "سیماد شبکه دولت" recursively
-        function findSimadRow(doc) {
-            const rows = Array.from(doc.querySelectorAll('tr'));
-            const simadRow = rows.find(r => r.innerText.includes('سیماد شبکه دولت'));
-            if (simadRow) return simadRow;
+        // Find the Receive button recursively
+        function findReceiveBtn(doc) {
+            const btn = doc.getElementById('ReceiveOperationBtn') || doc.querySelector('[name="ReceiveOperationBtn"]');
+            if (btn) return btn;
             
             for (const iframe of doc.querySelectorAll('iframe')) {
                 try {
                     if (iframe.contentDocument) {
-                        const found = findSimadRow(iframe.contentDocument);
+                        const found = findReceiveBtn(iframe.contentDocument);
                         if (found) return found;
                     }
                 } catch(e) {}
@@ -472,31 +471,44 @@ async function receiveFromSimadAndRefresh(timerEl) {
             return null;
         }
         
-        const simadRow = findSimadRow(parentDoc);
-        if (simadRow) {
-            const cb = simadRow.querySelector('input[type="Checkbox"], input[type="checkbox"]');
-            if (cb && !cb.checked) {
-                cb.checked = true;
-                if (typeof cb.onclick === 'function') {
-                    try { cb.onclick(); } catch (e) {}
+        const receiveBtn = findReceiveBtn(parentDoc);
+        if (receiveBtn) {
+            const doc = receiveBtn.ownerDocument;
+            // Try to find the Simad row
+            const rows = Array.from(doc.querySelectorAll('tr'));
+            const simadRow = rows.find(r => r.innerText.includes('سیماد') || r.innerText.includes('شبکه دولت'));
+            
+            let checkedSomething = false;
+            if (simadRow) {
+                const cb = simadRow.querySelector('input[type="Checkbox"], input[type="checkbox"]');
+                if (cb && !cb.checked) {
+                    cb.checked = true;
+                    if (typeof cb.onclick === 'function') { try { cb.onclick(); } catch(e) {} }
+                    checkedSomething = true;
                 }
             }
             
-            // The button should be in the same document as the simadRow
-            const doc = simadRow.ownerDocument;
-            const receiveBtn = doc.getElementById('ReceiveOperationBtn');
-            if (receiveBtn) {
-                aiLogger.info('Triggering Simad Receive...');
-                receiveBtn.click();
-                
-                // Wait for the receive operation to finish
-                if (timerEl) timerEl.textContent = 'منتظر اتمام دریافت...';
-                await new Promise(r => setTimeout(r, 6000));
-            } else {
-                aiLogger.warn('ReceiveOperationBtn not found in the same document.');
+            // If simad row not found, just check all checkboxes in the table to be safe
+            if (!simadRow) {
+                aiLogger.warn('کلمه سیماد پیدا نشد. تمام چک‌باکس‌ها انتخاب می‌شوند.');
+                const allCbs = Array.from(doc.querySelectorAll('input[type="Checkbox"], input[type="checkbox"]'));
+                for(let cb of allCbs) {
+                    if (!cb.checked && cb.id !== 'chkAll') {
+                        cb.checked = true;
+                        if (typeof cb.onclick === 'function') { try { cb.onclick(); } catch(e) {} }
+                        checkedSomething = true;
+                    }
+                }
             }
+            
+            aiLogger.info('Triggering Simad Receive...');
+            receiveBtn.click();
+            
+            // Wait for the receive operation to finish
+            if (timerEl) timerEl.textContent = 'منتظر اتمام دریافت...';
+            await new Promise(r => setTimeout(r, 6000));
         } else {
-            aiLogger.warn('Simad row not found in any open tab.');
+            aiLogger.warn('دکمه دریافت (ReceiveOperationBtn) در هیچ تبی پیدا نشد. آیا تب صندوق دریافت باز است؟');
         }
     } catch (e) {
         aiLogger.error('Error during Simad receive:', e);
