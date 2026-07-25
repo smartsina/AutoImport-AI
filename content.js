@@ -445,19 +445,81 @@ async function triggerAutoEmptyWait() {
 
         if (secondsLeft < 0) {
             clearInterval(autoEmptyIntervalId);
-            if (timerEl) timerEl.textContent = 'در حال رفرش...';
-            // رفرش کردن فریم با فراخوانی تابع یا کلیک روی دکمه رفرش
-            const refreshBtn = document.getElementById('RefreshActiveFrameBtn') ||
-                document.querySelector('[onclick*="RefreshActiveFrame"]');
-            if (refreshBtn) {
-                refreshBtn.click();
-            } else if (typeof window.RefreshActiveFrame === 'function') {
-                window.RefreshActiveFrame();
-            } else {
-                location.reload();
-            }
+            receiveFromSimadAndRefresh(timerEl);
         }
     }, 1000);
+}
+
+async function receiveFromSimadAndRefresh(timerEl) {
+    if (timerEl) timerEl.textContent = 'در حال دریافت از سیماد...';
+    try {
+        const parentDoc = window.parent.document;
+        
+        // Find row containing "سیماد شبکه دولت" recursively
+        function findSimadRow(doc) {
+            const rows = Array.from(doc.querySelectorAll('tr'));
+            const simadRow = rows.find(r => r.innerText.includes('سیماد شبکه دولت'));
+            if (simadRow) return simadRow;
+            
+            for (const iframe of doc.querySelectorAll('iframe')) {
+                try {
+                    if (iframe.contentDocument) {
+                        const found = findSimadRow(iframe.contentDocument);
+                        if (found) return found;
+                    }
+                } catch(e) {}
+            }
+            return null;
+        }
+        
+        const simadRow = findSimadRow(parentDoc);
+        if (simadRow) {
+            const cb = simadRow.querySelector('input[type="Checkbox"], input[type="checkbox"]');
+            if (cb && !cb.checked) {
+                cb.checked = true;
+                if (typeof cb.onclick === 'function') {
+                    try { cb.onclick(); } catch (e) {}
+                }
+            }
+            
+            // The button should be in the same document as the simadRow
+            const doc = simadRow.ownerDocument;
+            const receiveBtn = doc.getElementById('ReceiveOperationBtn');
+            if (receiveBtn) {
+                aiLogger.info('Triggering Simad Receive...');
+                receiveBtn.click();
+                
+                // Wait for the receive operation to finish
+                if (timerEl) timerEl.textContent = 'منتظر اتمام دریافت...';
+                await new Promise(r => setTimeout(r, 6000));
+            } else {
+                aiLogger.warn('ReceiveOperationBtn not found in the same document.');
+            }
+        } else {
+            aiLogger.warn('Simad row not found in any open tab.');
+        }
+    } catch (e) {
+        aiLogger.error('Error during Simad receive:', e);
+    }
+    
+    // Switch back to "دریافت شده ها" and refresh
+    if (timerEl) timerEl.textContent = 'در حال رفرش...';
+    
+    try {
+        const tabs = Array.from(window.parent.document.querySelectorAll('a[data-toggle="tab"]'));
+        const receivedTab = tabs.find(a => a.innerText.includes('دریافت شده ها') || a.innerText.includes('صندوقهای دریافت') === false);
+        // Sometimes the tab is just called by its indicator name, so we can also just activate the tab that contains the current iframe
+        // But the easiest is to just refresh the current frame which will bring it back to focus usually.
+    } catch (e) {}
+
+    const refreshBtn = document.getElementById('RefreshActiveFrameBtn') || document.querySelector('[onclick*="RefreshActiveFrame"]');
+    if (refreshBtn) {
+        refreshBtn.click();
+    } else if (typeof window.RefreshActiveFrame === 'function') {
+        window.RefreshActiveFrame();
+    } else {
+        location.reload();
+    }
 }
 
 async function processNextBatchItem() {
