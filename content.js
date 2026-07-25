@@ -604,6 +604,10 @@ async function processNextBatchItem() {
 
         // تلاش برای پیدا کردن ردیف در جدول (ممکن است جدول در حال رفرش باشد، پس چند بار تلاش می‌کنیم)
         for (let attempt = 0; attempt < 10; attempt++) {
+            if (!window.isBatchProcessing) {
+                aiLogger.info('Batch processing aborted during row search');
+                return;
+            }
             const allRows = Array.from(document.querySelectorAll('#ResultsTable tr'));
             for (const tr of allRows) {
                 const cb = tr.querySelector('input[type="Checkbox"], input[type="checkbox"]');
@@ -640,6 +644,7 @@ async function processNextBatchItem() {
         // 2. صبر برای باز شدن جدول Operations
         let operationsTable = null;
         for (let i = 0; i < 20; i++) {
+            if (!window.isBatchProcessing) return;
             await sleep(500);
             operationsTable = document.getElementById('Operations');
             if (operationsTable && operationsTable.offsetParent !== null) break;
@@ -660,6 +665,7 @@ async function processNextBatchItem() {
         // 4. صبر برای باز شدن پاپ‌آپ (iframe)
         let indicatorDiv = null;
         for (let i = 0; i < 20; i++) {
+            if (!window.isBatchProcessing) return;
             await sleep(500);
             for (const doc of allDocs()) {
                 indicatorDiv = doc.querySelector('.IndicatorSelectionEntityDiv[title="سند وارده"]');
@@ -1839,12 +1845,13 @@ function* allDocs(rootDoc = null) {
 function showPanel() {
     document.getElementById('ai-autoimport-panel')?.remove();
     window.isSinglePaused = false;
+    isProcessing = true; // Ensure isProcessing is true
     const panel = document.createElement('div');
     panel.id = 'ai-autoimport-panel';
     panel.innerHTML = `
         <div class="ai-panel-header">
             <span>🤖 ثبت هوشمند نامه وارده</span>
-            <button onclick="this.closest('#ai-autoimport-panel').remove()">✕</button>
+            <button id="ai-single-close-x">✕</button>
         </div>
         <div class="ai-panel-body">
             <div class="ai-steps">
@@ -1857,11 +1864,26 @@ function showPanel() {
             </div>
             <div id="ai-extracted-data" style="display:none;"></div>
             <div id="ai-panel-msg" class="ai-panel-message"></div>
-            <button id="ai-single-pause-btn" class="ai-smart-btn" style="width:100%; justify-content:center; margin-top:10px; background:linear-gradient(135deg, #f59e0b, #d97706);">
-                ⏸ توقف موقت
-            </button>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="ai-single-pause-btn" class="ai-smart-btn" style="flex: 1; justify-content:center; background:linear-gradient(135deg, #f59e0b, #d97706);">
+                    ⏸ توقف موقت
+                </button>
+                <button id="ai-single-stop-btn" class="ai-smart-btn" style="flex: 1; justify-content:center; background:linear-gradient(135deg, #ef4444, #b91c1c);">
+                    ⏹ پایان
+                </button>
+            </div>
         </div>`;
     document.body.appendChild(panel);
+
+    const stopOperation = () => {
+        isProcessing = false;
+        window.isSinglePaused = false;
+        panel.remove();
+        showNotification('عملیات متوقف شد.', 'info');
+    };
+
+    document.getElementById('ai-single-close-x').addEventListener('click', stopOperation);
+    document.getElementById('ai-single-stop-btn').addEventListener('click', stopOperation);
 
     const pauseBtn = document.getElementById('ai-single-pause-btn');
     if (pauseBtn) {
