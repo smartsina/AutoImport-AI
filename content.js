@@ -967,11 +967,25 @@ async function startFormAutoImport() {
             if (scannedDiv) {
                 aiLogger.info('Closing dependency dialog...');
                 try {
-                    const btnClose = foundDoc.getElementById('btnClose');
-                    if (btnClose) btnClose.click();
-                    else {
-                        const altClose = window.top.document.querySelector('.ui-dialog-titlebar-close');
-                        if (altClose) altClose.click();
+                    const docsToSearch = [window.document, window.parent.document];
+                    if (window.top !== window.parent) docsToSearch.push(window.top.document);
+                    
+                    let closed = false;
+                    for (const doc of docsToSearch) {
+                        try {
+                            const closeBtns = Array.from(doc.querySelectorAll('.ui-dialog-titlebar-close, [title="Close"], .fancybox-close, #btnClose'));
+                            for (const btn of closeBtns) {
+                                if (btn.offsetWidth > 0 || btn.offsetHeight > 0) {
+                                    btn.click();
+                                    closed = true;
+                                }
+                            }
+                        } catch (e) {}
+                    }
+                    if (!closed) {
+                        // Sometimes the dialog is just a Div we can hide
+                        const dialogs = window.parent.document.querySelectorAll('.ui-dialog');
+                        dialogs.forEach(d => { if (d.style.display !== 'none') d.style.display = 'none'; });
                     }
                 } catch (e) { }
             }
