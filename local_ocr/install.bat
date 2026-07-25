@@ -2,7 +2,7 @@
 echo Installing OCR Server requirements for Windows...
 echo.
 
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 if errorlevel 1 (
     echo.
     echo Failed to install dependencies. Make sure Python and PIP are installed and added to PATH.
