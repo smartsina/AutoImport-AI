@@ -78,8 +78,11 @@ function detectPageAndInject() {
                             handleAutoEmptyImport(true);
                         }, 3000);
                     }
-                });
+                }).catch(e => {});
             }
+        }).catch(e => {
+            if (e.message && e.message.includes('Extension context invalidated')) return;
+            aiLogger.error('Storage error:', e);
         });
 
         return;
@@ -97,7 +100,7 @@ function detectPageAndInject() {
                 aiLogger.info('Batch import is active, auto-starting startFormAutoImport...');
                 setTimeout(startFormAutoImport, 1500);
             }
-        });
+        }).catch(e => {});
 
         return;
     }
