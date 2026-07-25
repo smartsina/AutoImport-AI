@@ -2078,12 +2078,12 @@ function setupKeepAlive() {
     const KEEPALIVE_INTERVAL = 5 * 60 * 1000; // 5 minutes
     setInterval(() => {
         try {
-            // درخواست به یک عکس کوچک از خود فارزین به جای HEAD از صفحه اصلی
-            fetch('/FarzinSoft/SKin/Theme1/TabControl/Refresh2.png', { cache: 'no-store' })
+            // استفاده از آدرس فعلی با متد GET به جای تصویر نامشخص
+            fetch(window.location.href, { cache: 'no-store' })
                 .then(() => aiLogger.info('Keep-alive ping sent.'))
-                .catch(err => aiLogger.error('Keep-alive ping failed', err));
+                .catch(() => { /* نادیده گرفتن ارورهای موقت شبکه */ });
         } catch (e) {
-            aiLogger.error('Keep-alive error', e);
+            // نادیده گرفتن ارور
         }
     }, KEEPALIVE_INTERVAL);
     aiLogger.info('Session keep-alive initialized (5m interval)');
