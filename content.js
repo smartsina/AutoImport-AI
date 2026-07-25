@@ -442,6 +442,10 @@ async function triggerAutoEmptyWait() {
 
     showAutoEmptyOverlay();
 
+    if (autoEmptyIntervalId) {
+        clearInterval(autoEmptyIntervalId);
+    }
+
     autoEmptyIntervalId = setInterval(() => {
         const timerEl = document.getElementById('ai-autoempty-timer');
         if (timerEl) {
