@@ -849,17 +849,22 @@ async function checkPause() {
 }
 
 // --- شروع از داخل فرم (جریان جدید: گیرنده → ذخیره → OCR → پر کردن → ذخیره → ارجاع) ---
-async function startFormAutoImport() {
+async function startFormAutoImport(eventOrFlag) {
     if (isProcessing) { showNotification('⏳ در حال پردازش...', 'warning'); return; }
+    
+    const isManualClick = eventOrFlag instanceof Event || eventOrFlag === true;
+
     const storedRunId = await chrome.storage.local.get(['autoimport_current_run_id']);
     const runId = storedRunId.autoimport_current_run_id || 'manual';
     const sessionKey = 'autoimport_ran_' + runId;
 
-    if (sessionStorage.getItem(sessionKey)) {
-        aiLogger.info('Auto import already ran in this tab session for runId: ' + runId + '. Skipping to prevent loop.');
-        return;
+    if (!isManualClick) {
+        if (sessionStorage.getItem(sessionKey)) {
+            aiLogger.info('Auto import already ran in this tab session for runId: ' + runId + '. Skipping to prevent loop.');
+            return;
+        }
+        sessionStorage.setItem(sessionKey, 'true');
     }
-    sessionStorage.setItem(sessionKey, 'true');
 
     isProcessing = true;
     showPanel();
