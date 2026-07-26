@@ -32,6 +32,10 @@ function detectPageAndInject() {
         document.querySelector('table.EmailGeneralFarsiTable2')) {
         injectEmailListButton();
 
+        // جلوگیری از اجرای مکرر بخاطر MutationObserver
+        if (window._pageStateInitialized) return;
+        window._pageStateInitialized = true;
+
         // چک کردن برای از سرگیری ثبت گروهی در صورت رفرش شدن صفحه
         chrome.storage.local.get([
             'autoimport_batch_active', 'autoimport_batch_queue', 'autoimport_batch_total',
