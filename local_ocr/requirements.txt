@@ -4,18 +4,18 @@
 flask>=3.0.0
 flask-cors>=4.0.0
 
-# PaddleOCR (بهترین پشتیبانی از فارسی در ویندوز)
-paddlepaddle>=2.6.0  # نسخه CPU
+# PaddleOCR
+paddlepaddle>=2.6.0
 paddleocr>=2.7.0
 
 # Image processing
 Pillow>=10.0.0
 
-# PDF support (اولویت اول)
+# PDF support
 pymupdf>=1.24.0
 
 # PDF fallback
 pdf2image>=1.17.0
 
-# Tesseract wrapper (fallback دوم)
+# Tesseract wrapper
 pytesseract>=0.3.13
