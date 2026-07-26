@@ -95,6 +95,11 @@ function detectPageAndInject() {
     // صفحه فرم وارده (ثبت نامه)
     if (document.getElementById('ulSave') || document.getElementById('ulSend') ||
         document.getElementById('txtImportOriginNO')) {
+        
+        // جلوگیری از اجرای مکرر فرم بخاطر MutationObserver
+        if (window._formStateInitialized) return;
+        window._formStateInitialized = true;
+
         injectImportFormButton();
         checkAndAutoFillFromStorage();
 
@@ -102,7 +107,7 @@ function detectPageAndInject() {
         chrome.storage.local.get(['autoimport_batch_active']).then(stored => {
             if (stored.autoimport_batch_active) {
                 aiLogger.info('Batch import is active, auto-starting startFormAutoImport...');
-                setTimeout(startFormAutoImport, 1500);
+                setTimeout(() => startFormAutoImport(false), 1500);
             }
         }).catch(e => {});
 
