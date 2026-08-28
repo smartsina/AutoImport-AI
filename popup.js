@@ -81,12 +81,13 @@ async function loadConfigForm() {
         setVal('cfg-ref-name',        cfg.referralPersonName  || 'كلاري محسن');
         setVal('cfg-ref-role',        cfg.referralPersonRole  || 'مدير كل');
 
-        // تنظیم auto-confirm و auto-close
-        const localSettings = await chrome.storage.local.get(['autoimport_autoconfirm', 'autoimport_autoclose', 'autoimport_recycle_receipts', 'autoimport_autoempty_interval']);
+        // تنظیم auto-confirm و auto-close و OCR
+        const localSettings = await chrome.storage.local.get(['autoimport_autoconfirm', 'autoimport_autoclose', 'autoimport_recycle_receipts', 'autoimport_autoempty_interval', 'autoimport_ocr_server']);
         document.getElementById('cfg-autoconfirm').checked = !!localSettings.autoimport_autoconfirm;
         document.getElementById('cfg-autoclose').checked = !!localSettings.autoimport_autoclose;
         document.getElementById('cfg-recycle-receipts').checked = !!localSettings.autoimport_recycle_receipts;
         document.getElementById('cfg-autoempty-interval').value = localSettings.autoimport_autoempty_interval || 5;
+        document.getElementById('cfg-ocr-server').value = localSettings.autoimport_ocr_server || 'http://127.0.0.1:5151';
 
     } catch (e) { log.error('loadConfigForm', e); }
 }
@@ -169,11 +170,14 @@ function setupConfigSave() {
         const autoClose = document.getElementById('cfg-autoclose').checked;
         const recycleReceipts = document.getElementById('cfg-recycle-receipts').checked;
         const autoEmptyInterval = parseInt(document.getElementById('cfg-autoempty-interval').value) || 5;
+        const ocrServer = document.getElementById('cfg-ocr-server').value || 'http://127.0.0.1:5151';
+        
         await chrome.storage.local.set({ 
             autoimport_autoconfirm: autoConfirm,
             autoimport_autoclose: autoClose,
             autoimport_recycle_receipts: recycleReceipts,
-            autoimport_autoempty_interval: autoEmptyInterval
+            autoimport_autoempty_interval: autoEmptyInterval,
+            autoimport_ocr_server: ocrServer
         });
     });
 }

@@ -275,11 +275,15 @@ async function handleInjectMainWorldConfirm(tabId, sendResponse) {
 
 // ===== Helper: OCR از طریق سرور محلی (port 5151) =====
 async function tryLocalOcr(imageUrl) {
-    const LOCAL_OCR_URL = 'http://127.0.0.1:5151/ocr';
+    const settings = await chrome.storage.local.get(['autoimport_ocr_server']);
+    const baseUrl = (settings.autoimport_ocr_server || 'http://127.0.0.1:5151').replace(/\/+$/, '');
+    const LOCAL_OCR_URL = `${baseUrl}/ocr`;
+    const LOCAL_HEALTH_URL = `${baseUrl}/health`;
+
     try {
         // بررسی آیا سرور محلی در دسترس است (timeout کوتاه)
         const healthCheck = await Promise.race([
-            fetch('http://127.0.0.1:5151/health'),
+            fetch(LOCAL_HEALTH_URL),
             new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500))
         ]);
         if (!healthCheck.ok) {
@@ -359,7 +363,9 @@ async function handleOcrNativeDownload(payload, sendResponse) {
                     logger.info(`✅ Native download complete: ${targetDl.filename}`);
                     
                     // ارسال آدرس فایل محلی به سرور OCR پایتون
-                    const LOCAL_OCR_URL = 'http://127.0.0.1:5151/ocr';
+                    const settings = await chrome.storage.local.get(['autoimport_ocr_server']);
+                    const baseUrl = (settings.autoimport_ocr_server || 'http://127.0.0.1:5151').replace(/\/+$/, '');
+                    const LOCAL_OCR_URL = `${baseUrl}/ocr`;
                     try {
                         const res = await fetch(LOCAL_OCR_URL, {
                             method: 'POST',
