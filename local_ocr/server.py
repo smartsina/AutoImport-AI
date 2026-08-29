@@ -177,8 +177,8 @@ def ocr_mlx_vlm(image_path):
                 ]
             }
         ],
-        'max_tokens': 2048,
-        'temperature': 0.0,
+        'max_tokens': 4096,
+        'temperature': 0.05,
         'top_p': 1.0,
         'repetition_penalty': 1.2
     }
@@ -288,15 +288,14 @@ def filter_watermark(text: str) -> str:
 
 
 def clean_repeating_loops(text: str) -> str:
-    """پاک‌سازی لوپ‌ها و عبارات تکراری بی‌معنی حاصل از OCR/VLM"""
+    """پاک‌سازی دقیق لوپ‌های تکراری بی‌معنی بدون دست زدن به شماره‌های چند اسلشه معتبر"""
     if not text:
         return ''
     import re
-    # ۱. حذف اسلش‌های تکراری لوپ‌شده مانند /۱/۱/۱/۱/۱ یا /۱۲.۰/۱۲.۰
-    text = re.sub(r'(?:/(?:[۰-۹0-9]\.|\.|[۰-۹0-9])){5,}', '', text)
-    text = re.sub(r'(?:-[۰-۹0-9]/[۰-۹0-9]){4,}', '', text)
-    text = re.sub(r'(?:/۱۲\.۰)+', '', text)
-    text = re.sub(r'(?:/12\.0)+', '', text)
+    # ۱. فقط کاراکترها یا نمادهای دقیقا تکراری متوالی (مانند /۱/۱/۱/۱/۱ یا /۰/۰/۰/۰ یا /.۰/.۰/.۰)
+    text = re.sub(r'(/(?:۱|1|۰|0|\.))\1{4,}', '', text)
+    text = re.sub(r'(/[\d۰-۹]+\.[\d۰-۹]+)\1{3,}', '', text)
+    text = re.sub(r'(-[\d۰-۹]/[\d۰-۹])\1{3,}', '', text)
 
     # ۲. پاک‌سازی عبارات تکراری متوالی
     lines = text.splitlines()
