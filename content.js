@@ -61,10 +61,10 @@ function detectPageAndInject() {
                     if (statusEl) statusEl.textContent = 'وضعیت: متوقف شده';
                 }
 
-                // فقط در صورتی به نامه بعدی برو که منتظر اتمام نامه فعلی نباشیم (یا تایم‌اوت ۱۲ ثانیه‌ای شده باشد) و پاز نباشد
+                // فقط در صورتی به نامه بعدی برو که منتظر اتمام نامه فعلی نباشیم (یا تایم‌اوت ۱۸۰ ثانیه‌ای/۳ دقیقه‌ای شده باشد) و پاز نباشد
                 const isWaiting = stored.autoimport_batch_waiting;
                 const waitTime = stored.autoimport_batch_wait_time || 0;
-                const isTimeout = (Date.now() - waitTime) > 12000;
+                const isTimeout = (Date.now() - waitTime) > 180000;
 
                 if (!window.isBatchPaused && (!isWaiting || isTimeout)) {
                     window.batchIsBusy = false;
@@ -585,6 +585,17 @@ async function processNextBatchItem() {
             return;
         }
 
+        // چک کن ببین آیا فرم دیگری هم‌اکنون فعال و در حال پردازش است؟
+        const checkStored = await chrome.storage.local.get(['autoimport_batch_waiting', 'autoimport_batch_wait_time']);
+        if (checkStored.autoimport_batch_waiting) {
+            const elapsed = Date.now() - (checkStored.autoimport_batch_wait_time || 0);
+            if (elapsed < 180000) { // کمتر از ۳ دقیقه
+                aiLogger.info('یک نامه هم‌اکنون در حال ثبت و ارجاع است. لغو فراخوانی جدید برای جلوگیری از تداخل.', checkStored);
+                window.batchIsBusy = false;
+                return;
+            }
+        }
+
         if (!window.autoImportQueue || window.autoImportQueue.length === 0) {
             window.isBatchProcessing = false;
             await chrome.storage.local.set({
@@ -1066,10 +1077,21 @@ async function startFormAutoImport(eventOrFlag) {
             return;
         }
 
+        const updateHeartbeat = async () => {
+            try {
+                await chrome.storage.local.set({
+                    autoimport_batch_waiting: true,
+                    autoimport_batch_wait_time: Date.now()
+                });
+            } catch (e) { }
+        };
+
+        await updateHeartbeat();
         updatePanelStep(1, 'done', 'اطلاعات فرم خوانده شد ✓');
 
         // مرحله ۲: فقط گیرنده (کد ۱۰ + مدیریت اداره کل) را پر کن و ذخیره کن
         await checkPause();
+        await updateHeartbeat();
         updatePanelStep(2, 'loading', 'در حال ثبت اولیه‌ (OCR هنوز انجام نشده)...');
         await setReceiverField();
         await clickSave();
@@ -1077,6 +1099,7 @@ async function startFormAutoImport(eventOrFlag) {
 
         // مرحله ۳: دریافت فایل‌های ضمیمه و آنالیز با هوش مصنوعی
         await checkPause();
+        await updateHeartbeat();
         const result = await extractAndAnalyzeFiles(existingData);
         let letterData = result.letterData;
         let analysisSuccess = result.analysisSuccess;
@@ -1087,6 +1110,7 @@ async function startFormAutoImport(eventOrFlag) {
 
         // مرحله ۴: پر کردن تمام فیلدها و اعتبارسنجی
         await checkPause();
+        await updateHeartbeat();
         updatePanelStep(4, 'loading', 'در حال پر کردن فیلدها و اعتبارسنجی...');
         await fillFormFields(letterData);
 
@@ -1098,6 +1122,7 @@ async function startFormAutoImport(eventOrFlag) {
             showNotification('⚠️ فیلد موضوع یا شماره نامه خالی است. در حال تلاش مجدد...', 'warning');
 
             await sleep(1500);
+            await updateHeartbeat();
             const retryResult = await extractAndAnalyzeFiles(existingData);
             if (retryResult && retryResult.letterData) {
                 letterData = retryResult.letterData;
@@ -1130,11 +1155,13 @@ async function startFormAutoImport(eventOrFlag) {
         }
 
         // فقط در صورت پر بودن موضوع و شماره نامه: ذخیره نهایی
+        await updateHeartbeat();
         await clickSave();
         updatePanelStep(4, 'done', 'فیلدها پر شدند و ذخیره شد ✓');
 
         // مرحله ۵: ارجاع
         await checkPause();
+        await updateHeartbeat();
         updatePanelStep(5, 'loading', 'در حال ارجاع...');
         let refName = 'كلاري محسن';
         try {
