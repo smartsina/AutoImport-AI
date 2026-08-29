@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # وضعیت موتورهای OCR
 engines = {
+    "mlx_paddle_vlm": False,
     "apple_vision_ocrmac": False,
     "apple_vision_pyobjc": False,
     "easyocr": False,
@@ -29,9 +30,32 @@ engines = {
 }
 _easyocr_reader = None
 
+MLX_VLM_URL = os.environ.get("MLX_VLM_URL", "http://localhost:8111/v1/chat/completions")
+MLX_VLM_MODEL = os.environ.get("MLX_VLM_MODEL", "PaddlePaddle/PaddleOCR-VL-1.6")
+
+
+def check_mlx_vlm():
+    """بررسی اتصال به سرور شتاب‌دهنده MLX-VLM پورت 8111"""
+    import urllib.request, json
+    models_url = os.environ.get("MLX_VLM_MODELS_URL", "http://localhost:8111/v1/models")
+    try:
+        req = urllib.request.Request(models_url)
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            return True
+    except Exception:
+        return False
+
 
 def init_engines():
     global _easyocr_reader, engines
+
+    # MLX-VLM (PaddleOCR-VL-1.6 روی شتاب‌دهنده Metal مک‌بوک)
+    if check_mlx_vlm():
+        engines["mlx_paddle_vlm"] = True
+        logger.info(f"⚡ MLX-VLM (PaddleOCR-VL-1.6 روی GPU/Metal مک‌بوک - پورت 8111) آماده است")
+    else:
+        logger.warning("⚠️  سرور MLX-VLM (پورت 8111) در دسترس نیست")
 
     # Apple Vision از طریق ocrmac
     try:
@@ -131,6 +155,38 @@ def ocr_easyocr(image_path):
     return '\n'.join(r[1] for r in results if r[2] > 0.2)
 
 
+def ocr_mlx_vlm(image_path):
+    """استخراج متن با PaddleOCR-VL-1.6 از طریق شتاب‌دهنده MLX-VLM رو پورت 8111"""
+    import urllib.request, json, base64
+    with open(image_path, 'rb') as f:
+        img_b64 = base64.b64encode(f.read()).decode('utf-8')
+
+    payload = {
+        'model': MLX_VLM_MODEL,
+        'messages': [
+            {
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': 'متن موجود در این تصویر/نامه را به طور کامل، دقیق، منظم و بدون هیچ توضیح اضافه استخراج کن.'},
+                    {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{img_b64}'}}
+                ]
+            }
+        ],
+        'max_tokens': 2048,
+        'temperature': 0.1
+    }
+
+    req = urllib.request.Request(
+        MLX_VLM_URL,
+        data=json.dumps(payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json'}
+    )
+    with urllib.request.urlopen(req, timeout=45) as resp:
+        res = json.loads(resp.read().decode('utf-8'))
+        content = res['choices'][0]['message']['content']
+        return content.strip() if content else ""
+
+
 def ocr_tesseract(image_path):
     import pytesseract
     from PIL import Image
@@ -161,6 +217,7 @@ def filter_watermark(text: str) -> str:
 def run_ocr(image_path):
     errors = []
     for name, fn in [
+        ("mlx_paddle_vlm",      ocr_mlx_vlm),
         ("apple_vision_ocrmac", ocr_apple_vision_ocrmac),
         ("apple_vision_pyobjc", ocr_apple_vision_pyobjc),
         ("easyocr",             ocr_easyocr),
