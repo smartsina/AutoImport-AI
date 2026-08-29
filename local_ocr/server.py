@@ -161,19 +161,26 @@ def ocr_mlx_vlm(image_path):
     with open(image_path, 'rb') as f:
         img_b64 = base64.b64encode(f.read()).decode('utf-8')
 
+    prompt = (
+        "متن موجود در این تصویر/نامه را به طور کامل، دقیق، منظم و بدون هیچ توضیح اضافه استخراج کن.\n"
+        "مهم: از تولید هرگونه کاراکتر تکراری، عبارات لوپ‌شده یا اسلش‌های متوالی (مانند /۱/۱/۱/۱) شدیداً خودداری کن."
+    )
+
     payload = {
         'model': MLX_VLM_MODEL,
         'messages': [
             {
                 'role': 'user',
                 'content': [
-                    {'type': 'text', 'text': 'متن موجود در این تصویر/نامه را به طور کامل، دقیق، منظم و بدون هیچ توضیح اضافه استخراج کن.'},
+                    {'type': 'text', 'text': prompt},
                     {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{img_b64}'}}
                 ]
             }
         ],
         'max_tokens': 2048,
-        'temperature': 0.1
+        'temperature': 0.0,
+        'top_p': 1.0,
+        'repetition_penalty': 1.2
     }
 
     req = urllib.request.Request(
@@ -280,10 +287,42 @@ def filter_watermark(text: str) -> str:
     return '\n'.join(lines)
 
 
+def clean_repeating_loops(text: str) -> str:
+    """پاک‌سازی لوپ‌ها و عبارات تکراری بی‌معنی حاصل از OCR/VLM"""
+    if not text:
+        return ''
+    import re
+    # ۱. حذف اسلش‌های تکراری لوپ‌شده مانند /۱/۱/۱/۱/۱ یا /۱۲.۰/۱۲.۰
+    text = re.sub(r'(?:/(?:[۰-۹0-9]\.|\.|[۰-۹0-9])){5,}', '', text)
+    text = re.sub(r'(?:-[۰-۹0-9]/[۰-۹0-9]){4,}', '', text)
+    text = re.sub(r'(?:/۱۲\.۰)+', '', text)
+    text = re.sub(r'(?:/12\.0)+', '', text)
+
+    # ۲. پاک‌سازی عبارات تکراری متوالی
+    lines = text.splitlines()
+    cleaned_lines = []
+    for l in lines:
+        l_clean = re.sub(r'(.{8,60}?)\1{2,}', r'\1', l)
+        cleaned_lines.append(l_clean)
+
+    # ۳. حذف خطوط تکراری پشت سر هم
+    final_lines = []
+    prev_line = None
+    for l in cleaned_lines:
+        s = l.strip()
+        if s and s == prev_line and len(s) > 5:
+            continue
+        prev_line = s
+        final_lines.append(l)
+
+    return '\n'.join(final_lines)
+
+
 def postprocess_text(text: str) -> str:
-    """پالایش نهایی متن OCR (واترمارک و شماره‌های اسلش‌دار)"""
+    """پالایش نهایی متن OCR (واترمارک، لوپ‌های تکراری و شماره‌های اسلش‌دار)"""
     text = filter_watermark(text)
     text = fix_persian_slash_codes(text)
+    text = clean_repeating_loops(text)
     return text
 
 
@@ -328,19 +367,23 @@ def preprocess(image_path):
 
 
 def pdf_to_images(pdf_path):
+    """تبدیل دقیق صفحات PDF به تصویر با کیفیت ۳۰۰ DPI"""
     if engines["pymupdf"]:
         import fitz
         doc = fitz.open(str(pdf_path))
         paths = []
+        # 300 DPI = 72 * (300/72) = 4.16667 matrix scale
+        zoom = 300 / 72  # 4.16666667
+        mat = fitz.Matrix(zoom, zoom)
         for i, page in enumerate(doc):
-            pix = page.get_pixmap(matrix=fitz.Matrix(2.5, 2.5), alpha=False)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
             tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False, prefix=f'ocr_pdf_p{i}_')
             pix.save(tmp.name)
             paths.append(tmp.name)
         return paths
     try:
         from pdf2image import convert_from_path
-        pages = convert_from_path(str(pdf_path), dpi=200)
+        pages = convert_from_path(str(pdf_path), dpi=300)
         paths = []
         for i, p in enumerate(pages):
             tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False, prefix=f'ocr_pdf_p{i}_')
