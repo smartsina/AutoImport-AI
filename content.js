@@ -61,13 +61,14 @@ function detectPageAndInject() {
                     if (statusEl) statusEl.textContent = 'وضعیت: متوقف شده';
                 }
 
-                // فقط در صورتی به نامه بعدی برو که منتظر اتمام نامه فعلی نباشیم (یا تایم‌اوت ۲ دقیقه‌ای شده باشد) و پاز نباشد
+                // فقط در صورتی به نامه بعدی برو که منتظر اتمام نامه فعلی نباشیم (یا تایم‌اوت ۱۲ ثانیه‌ای شده باشد) و پاز نباشد
                 const isWaiting = stored.autoimport_batch_waiting;
                 const waitTime = stored.autoimport_batch_wait_time || 0;
-                const isTimeout = (Date.now() - waitTime) > 120000;
+                const isTimeout = (Date.now() - waitTime) > 12000;
 
                 if (!window.isBatchPaused && (!isWaiting || isTimeout)) {
-                    setTimeout(processNextBatchItem, 2000);
+                    window.batchIsBusy = false;
+                    setTimeout(processNextBatchItem, 1500);
                 } else if (isWaiting && !isTimeout) {
                     aiLogger.info('Batch is waiting for current form to finish...');
                 }
@@ -1084,10 +1085,51 @@ async function startFormAutoImport(eventOrFlag) {
             updatePanelStep(3, 'error', 'خطا در آنالیز ضمیمه‌ها (ادامه با دیتای خام)');
         }
 
-        // مرحله ۴: پر کردن تمام فیلدها و ذخیره نهایی
+        // مرحله ۴: پر کردن تمام فیلدها و اعتبارسنجی
         await checkPause();
-        updatePanelStep(4, 'loading', 'در حال پر کردن فیلدها و ذخیره نهایی...');
+        updatePanelStep(4, 'loading', 'در حال پر کردن فیلدها و اعتبارسنجی...');
         await fillFormFields(letterData);
+
+        // 🔍 اعتبارسنجی پر شدن فیلدهای الزامی (موضوع و شماره نامه)
+        let check = validateRequiredFields();
+        if (!check.isValid) {
+            aiLogger.warn('فیلد موضوع یا شماره نامه خالی است. تلاش مجدد برای استخراج و پر کردن...', check);
+            updatePanelStep(4, 'loading', '⚠️ فیلد موضوع یا شماره خالی است. در حال تلاش مجدد برای استخراج...');
+            showNotification('⚠️ فیلد موضوع یا شماره نامه خالی است. در حال تلاش مجدد...', 'warning');
+
+            await sleep(1500);
+            const retryResult = await extractAndAnalyzeFiles(existingData);
+            if (retryResult && retryResult.letterData) {
+                letterData = retryResult.letterData;
+                await fillFormFields(letterData);
+            }
+            check = validateRequiredFields();
+        }
+
+        // 🛑 اگر پس از تلاش مجدد همچنان موضوع یا شماره خالی باشد: ارجاع نده!
+        if (!check.isValid) {
+            const missing = [];
+            if (!check.hasSubject) missing.push('موضوع');
+            if (!check.hasOriginNo) missing.push('شماره نامه');
+
+            const errMsg = `فیلدهای الزامی (${missing.join(' و ')}) پر نشدند. ارجاع خودکار لغو شد تا نامه ناقص ثبت نشود.`;
+            aiLogger.error(errMsg);
+            updatePanelStep(4, 'error', `❌ ${errMsg}`);
+            showNotification(`❌ ${errMsg}`, 'error');
+
+            // آزادسازی صف ثبت جمعی برای ادامه سایر نامه‌ها
+            await chrome.storage.local.set({
+                autoimport_batch_next: Date.now(),
+                autoimport_batch_waiting: false
+            });
+            try {
+                chrome.runtime.sendMessage({ action: 'batchNextSignal' });
+            } catch (e) { }
+
+            throw new Error(errMsg);
+        }
+
+        // فقط در صورت پر بودن موضوع و شماره نامه: ذخیره نهایی
         await clickSave();
         updatePanelStep(4, 'done', 'فیلدها پر شدند و ذخیره شد ✓');
 
@@ -1106,25 +1148,21 @@ async function startFormAutoImport(eventOrFlag) {
         updatePanelStep(5, 'done', 'نامه ارجاع داده شد ✓');
         showNotification('✅ نامه با موفقیت ثبت و ارجاع داده شد', 'success');
 
+        // سیگنال صریح به سیستم ثبت جمعی
+        await chrome.storage.local.set({
+            autoimport_batch_next: Date.now(),
+            autoimport_batch_waiting: false
+        });
+        try {
+            chrome.runtime.sendMessage({ action: 'batchNextSignal' });
+        } catch (e) { }
+
         // بررسی تنظیمات بسته شدن خودکار
         const settings = await chrome.storage.local.get(['autoimport_autoclose']);
-
         if (settings.autoimport_autoclose) {
-            // اعلام پایان به تب صندوق و بستن تب
-            await chrome.storage.local.set({
-                autoimport_batch_next: Date.now(),
-                autoimport_batch_waiting: false
-            });
             await handleAutoCloseTab();
         } else {
             showNotification('✅ نامه ثبت شد. پنجره را ببندید تا ثبت گروهی ادامه یابد.', 'info');
-            // فقط وقتی کاربر خودش تب را بست، به تب صندوق خبر بده
-            window.addEventListener('unload', () => {
-                chrome.storage.local.set({
-                    autoimport_batch_next: Date.now(),
-                    autoimport_batch_waiting: false
-                }).catch(() => { });
-            });
         }
 
     } catch (err) {
@@ -1133,13 +1171,35 @@ async function startFormAutoImport(eventOrFlag) {
         updateCurrentStepError(err.message);
 
         // در صورت بروز خطا هم به صندوق اطلاع می‌دهیم تا صف متوقف نشود
-        chrome.storage.local.set({
+        await chrome.storage.local.set({
             autoimport_batch_next: Date.now(),
             autoimport_batch_waiting: false
-        }).catch(() => { });
+        });
+        try {
+            chrome.runtime.sendMessage({ action: 'batchNextSignal' });
+        } catch (e) { }
     } finally {
         isProcessing = false;
     }
+}
+
+function validateRequiredFields() {
+    const subjectEl = document.getElementById('txtSubject_tbxAutocomplete');
+    const originNoEl = document.getElementById('txtImportOriginNO');
+
+    const subject = subjectEl ? subjectEl.value.trim() : '';
+    const originNo = originNoEl ? originNoEl.value.trim() : '';
+
+    const hasSubject = subject.length > 0;
+    const hasOriginNo = originNo.length > 0;
+
+    return {
+        isValid: hasSubject && hasOriginNo,
+        hasSubject,
+        hasOriginNo,
+        subject,
+        originNo
+    };
 }
 
 // --- خواندن داده‌های موجود از فرم (ایمیل فرستنده و...) ---
@@ -2140,6 +2200,22 @@ function isDialogLike(node) {
     } catch (e) { }
 })();
 
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'triggerNextBatchItem') {
+        chrome.storage.local.get(['autoimport_batch_active', 'autoimport_batch_queue', 'autoimport_batch_paused']).then(stored => {
+            if (stored.autoimport_batch_active && stored.autoimport_batch_queue && stored.autoimport_batch_queue.length > 0 && !stored.autoimport_batch_paused) {
+                window.isBatchProcessing = true;
+                window.autoImportQueue = stored.autoimport_batch_queue;
+                window.batchIsBusy = false;
+                aiLogger.info('Triggering processNextBatchItem via runtime message signal...');
+                setTimeout(processNextBatchItem, 1000);
+            }
+        }).catch(() => {});
+        sendResponse({ success: true });
+        return true;
+    }
+});
+
 chrome.storage.onChanged.addListener((changes) => {
     if (changes.autoimport_autoconfirm) {
         changes.autoimport_autoconfirm.newValue ? enableAutoConfirm() : disableAutoConfirm();
@@ -2149,6 +2225,7 @@ chrome.storage.onChanged.addListener((changes) => {
     if (changes.autoimport_batch_next) {
         if (window.isBatchProcessing) {
             aiLogger.info('Received batch_next signal, waiting 1s before next item...');
+            window.batchIsBusy = false;
             setTimeout(processNextBatchItem, 1000);
         }
     }

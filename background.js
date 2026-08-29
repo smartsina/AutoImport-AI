@@ -137,7 +137,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         handleWatchReferralPopup(request.payload, sender.tab?.id, sendResponse);
         return true;
     }
+    if (request.action === 'batchNextSignal') {
+        handleBatchNextSignal(sendResponse);
+        return true;
+    }
 });
+
+async function handleBatchNextSignal(sendResponse) {
+    try {
+        logger.info('Received batchNextSignal. Updating storage and notifying all tabs...');
+        await chrome.storage.local.set({
+            autoimport_batch_next: Date.now(),
+            autoimport_batch_waiting: false
+        });
+
+        const tabs = await chrome.tabs.query({});
+        for (const t of tabs) {
+            if (t.id) {
+                chrome.tabs.sendMessage(t.id, { action: 'triggerNextBatchItem' }).catch(() => {});
+            }
+        }
+        sendResponse({ success: true });
+    } catch (e) {
+        logger.error('handleBatchNextSignal error:', e);
+        sendResponse({ success: false, error: e.message });
+    }
+}
 
 // ===== Handler: اسکن همه تب‌های farsedu.ir برای پاپ‌آپ ارجاع =====
 // پاپ‌آپ ارجاع در پنجره جدید (تب) باز می‌شود - content.js تب اصلی نمی‌تواند آن را ببیند
