@@ -198,6 +198,72 @@ def ocr_tesseract(image_path):
     return text.strip()
 
 
+def fix_persian_slash_codes(text: str) -> str:
+    """
+    اصلاح شماره نامه‌ها و کدهای اداری حاوی اسلش (/) که برعکس استخراج شده‌اند.
+    مثال: ٥٠٤١/پ/٩/٥٧/١/٩٢٠٣ -> ۳۰۲۹/۱/۷۵/۹/پ/۱۴۰۵
+    """
+    import re
+    fa_digits = '۰۱۲۳۴۵۶۷۸۹'
+    ar_digits = '٠١٢٣٤٥٦٧٨٩'
+    en_digits = '0123456789'
+
+    def to_fa(s):
+        res = []
+        for c in s:
+            if c in ar_digits:
+                res.append(fa_digits[ar_digits.index(c)])
+            elif c in en_digits:
+                res.append(fa_digits[en_digits.index(c)])
+            else:
+                res.append(c)
+        return ''.join(res)
+
+    def fix_single_code(raw_code):
+        norm = to_fa(raw_code)
+        parts = norm.split('/')
+        if len(parts) < 2:
+            return norm
+
+        first = parts[0].strip()
+        last = parts[-1].strip()
+
+        # فرمت تاریخ شمسی (مثال: ۱۴۰۲/۰۵/۱۲) - دست‌نخورده می‌ماند
+        if len(parts) == 3 and (first.startswith('۱۴') or first.startswith('۱۳')) and len(first) == 4:
+            return norm
+
+        # اگر بخش آخر سال شمسی صحیح است (مثلاً ۳۰۲۹/۱/۷۵/۹/پ/۱۴۰۵)
+        if re.match(r'^[۰-۹]{4}$', last) and (last.startswith('۱۴') or last.startswith('۱۳')):
+            return norm
+
+        is_reversed = False
+
+        # اگر بخش اول سال معکوس است (مثلاً 5041 معکوس 1405 است)
+        if re.match(r'^[۰-۹]{4}$', first) and (first.endswith('۴۱') or first.endswith('۳۱')):
+            is_reversed = True
+        elif re.match(r'^[۰-۹]{4}$', first) and (first.startswith('۱۴') or first.startswith('۱۳')):
+            # بخش اول سال است اما بخش آخر سال نیست (ترتیب LTR شده)
+            rev_parts = parts[::-1]
+            return '/'.join(rev_parts)
+        elif not (last.startswith('۱۴') or last.startswith('۱۳')) and (first[::-1].startswith('۱۴') or first[::-1].startswith('۱۳')):
+            is_reversed = True
+
+        if is_reversed:
+            rev_parts = parts[::-1]
+            fixed = []
+            for p in rev_parts:
+                if re.match(r'^[۰-۹]+$', p):
+                    fixed.append(p[::-1])
+                else:
+                    fixed.append(p)
+            return '/'.join(fixed)
+
+        return norm
+
+    pattern = r'([۰-۹0-9a-zA-Zآ-ی\u0600-\u06FF]+(?:/[۰-۹0-9a-zA-Zآ-ی\u0600-\u06FF]+)+)'
+    return re.sub(pattern, lambda m: fix_single_code(m.group(0)), text)
+
+
 def filter_watermark(text: str) -> str:
     """حذف واترمارک‌های نام کاربری از متن OCR"""
     import re
@@ -214,6 +280,13 @@ def filter_watermark(text: str) -> str:
     return '\n'.join(lines)
 
 
+def postprocess_text(text: str) -> str:
+    """پالایش نهایی متن OCR (واترمارک و شماره‌های اسلش‌دار)"""
+    text = filter_watermark(text)
+    text = fix_persian_slash_codes(text)
+    return text
+
+
 def run_ocr(image_path):
     errors = []
     for name, fn in [
@@ -227,7 +300,7 @@ def run_ocr(image_path):
             continue
         try:
             text = fn(image_path)
-            text = filter_watermark(text)
+            text = postprocess_text(text)
             if text.strip():
                 return {"text": text, "method": name}
         except Exception as e:
