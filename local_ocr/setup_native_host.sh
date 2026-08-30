@@ -4,13 +4,10 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-LAUNCHER_PY="$SCRIPT_DIR/native_launcher.py"
+LAUNCHER_SH="$SCRIPT_DIR/native_launcher.sh"
 HOST_NAME="com.autoimport.ocr_launcher"
-TARGET_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
-MANIFEST_PATH="$TARGET_DIR/${HOST_NAME}.json"
 
-chmod +x "$LAUNCHER_PY"
-mkdir -p "$TARGET_DIR"
+chmod +x "$LAUNCHER_SH" "$SCRIPT_DIR/native_launcher.py"
 
 # محاسبه شناسه خودکار افزونه Chrome از روی مسیر پروژه
 CALC_ID=$(python3 -c "
@@ -22,22 +19,37 @@ print(''.join(chr(ord('a') + int(c, 16)) for c in h))
 
 TARGET_ID="${1:-$CALC_ID}"
 
-cat <<EOF > "$MANIFEST_PATH"
+JSON_CONTENT=$(cat <<EOF
 {
   "name": "${HOST_NAME}",
   "description": "AutoImport AI Native OCR Server Launcher",
-  "path": "${LAUNCHER_PY}",
+  "path": "${LAUNCHER_SH}",
   "type": "stdio",
   "allowed_origins": [
     "chrome-extension://${TARGET_ID}/"
   ]
 }
 EOF
+)
 
-chmod 644 "$MANIFEST_PATH"
+# مسیرهای مختلف مرورگرها در مک
+DIRS=(
+  "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+  "$HOME/Library/Application Support/Google/Chrome Beta/NativeMessagingHosts"
+  "$HOME/Library/Application Support/Google/Chrome Canary/NativeMessagingHosts"
+  "$HOME/Library/Application Support/Chromium/NativeMessagingHosts"
+  "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+  "$HOME/Library/Application Support/Arc/User Data/NativeMessagingHosts"
+  "$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts"
+)
+
+for d in "${DIRS[@]}"; do
+  mkdir -p "$d" 2>/dev/null
+  echo "$JSON_CONTENT" > "$d/${HOST_NAME}.json" 2>/dev/null
+  chmod 644 "$d/${HOST_NAME}.json" 2>/dev/null
+done
 
 echo "✅ ثبت Native Messaging Host با موفقیت انجام شد!"
-echo "🆔 شناسه افزونه: ${TARGET_ID}"
-echo "📍 فایل مانیفست: $MANIFEST_PATH"
-echo "📍 اجرای اسکریپت: $LAUNCHER_PY"
-echo "🚀 اکنون می‌توانید از داخل مرورگر یا افزونه، دکمه 'روشن کردن سرور OCR' را کلیک کنید."
+echo "🆔 شناسه افزونه ثبت‌شده: ${TARGET_ID}"
+echo "📍 اسکریپت لودر: ${LAUNCHER_SH}"
+echo "🚀 اکنون مرورگر را باز کرده یا افزونه را رفرش کنید و دکمه را بزنید."
