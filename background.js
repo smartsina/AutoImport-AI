@@ -141,7 +141,66 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         handleBatchNextSignal(sendResponse);
         return true;
     }
+    if (request.action === 'startOcrServerNative') {
+        handleStartOcrServerNative(sendResponse);
+        return true;
+    }
+    if (request.action === 'checkOcrServerStatus') {
+        handleCheckOcrServerStatus(sendResponse);
+        return true;
+    }
 });
+
+async function handleCheckOcrServerStatus(sendResponse) {
+    try {
+        const settings = await chrome.storage.local.get(['autoimport_ocr_server']);
+        const baseUrl = (settings.autoimport_ocr_server || 'http://127.0.0.1:5151').replace(/\/+$/, '');
+        const healthRes = await Promise.race([
+            fetch(`${baseUrl}/health`),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500))
+        ]);
+        sendResponse({ running: healthRes.ok });
+    } catch (e) {
+        sendResponse({ running: false });
+    }
+}
+
+async function handleStartOcrServerNative(sendResponse) {
+    try {
+        const settings = await chrome.storage.local.get(['autoimport_ocr_server']);
+        const baseUrl = (settings.autoimport_ocr_server || 'http://127.0.0.1:5151').replace(/\/+$/, '');
+        try {
+            const healthRes = await Promise.race([
+                fetch(`${baseUrl}/health`),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1000))
+            ]);
+            if (healthRes.ok) {
+                sendResponse({ success: true, running: true, message: 'سرور OCR محلی هم‌اکنون فعال است.' });
+                return;
+            }
+        } catch (e) { }
+
+        if (chrome.runtime.sendNativeMessage) {
+            chrome.runtime.sendNativeMessage('com.autoimport.ocr_launcher', { action: 'start' }, (response) => {
+                if (chrome.runtime.lastError) {
+                    logger.warn('Native messaging failed:', chrome.runtime.lastError.message);
+                    sendResponse({
+                        success: false,
+                        needSetup: true,
+                        error: 'راه انداز لایو فعال نیست. لطفا فایل setup_native_host را در پوشه local_ocr اجرا کنید.'
+                    });
+                } else {
+                    logger.info('Native launcher response:', response);
+                    sendResponse({ success: true, running: true, message: response?.message || 'سرور OCR روشن شد.' });
+                }
+            });
+        } else {
+            sendResponse({ success: false, error: 'مرورگر از Native Messaging پشتیبانی نمی‌کند.' });
+        }
+    } catch (err) {
+        sendResponse({ success: false, error: err.message });
+    }
+}
 
 async function handleBatchNextSignal(sendResponse) {
     try {

@@ -10,7 +10,8 @@
     "scripting",
     "storage",
     "tabs",
-    "downloads"
+    "downloads",
+    "nativeMessaging"
   ],
   "action": {
     "default_popup": "popup.html",

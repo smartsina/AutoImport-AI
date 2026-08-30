@@ -23,6 +23,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadAddressBookInfo();
     setupAddressBookEvents();
     setupConfigSave();
+    setupNativeOcrLauncher();
+    checkOcrServerStatus();
 });
 
 // ===== مدیریت تب‌ها =====
@@ -359,4 +361,66 @@ function showMsg(id, text, cls) {
 function debounce(fn, ms) {
     let t;
     return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+async function checkOcrServerStatus() {
+    const badge = document.getElementById('ocr-status-badge');
+    const startBtn = document.getElementById('btn-start-ocr-native');
+    if (!badge) return;
+
+    try {
+        const res = await chrome.runtime.sendMessage({ action: 'checkOcrServerStatus' });
+        if (res && res.running) {
+            badge.innerHTML = '🟢 سرور OCR فعال است (پورت 5151)';
+            badge.style.color = '#10b981';
+            if (startBtn) {
+                startBtn.textContent = '✅ سرور در حال اجراست';
+                startBtn.style.opacity = '0.7';
+            }
+        } else {
+            badge.innerHTML = '🔴 سرور OCR خاموش است';
+            badge.style.color = '#ef4444';
+            if (startBtn) {
+                startBtn.textContent = '🚀 روشن کردن سرور OCR روی لپ‌تاپ';
+                startBtn.style.opacity = '1';
+            }
+        }
+    } catch (e) {
+        badge.innerHTML = '🔴 سرور OCR خاموش است';
+        badge.style.color = '#ef4444';
+    }
+}
+
+function setupNativeOcrLauncher() {
+    const startBtn = document.getElementById('btn-start-ocr-native');
+    if (!startBtn) return;
+
+    startBtn.addEventListener('click', async () => {
+        const badge = document.getElementById('ocr-status-badge');
+        badge.innerHTML = '⏳ در حال روشن کردن سرور OCR روی لپ‌تاپ...';
+        badge.style.color = '#f59e0b';
+        startBtn.disabled = true;
+
+        try {
+            const res = await chrome.runtime.sendMessage({ action: 'startOcrServerNative' });
+            if (res && res.success) {
+                badge.innerHTML = '🟢 سرور OCR با موفقیت روشن شد!';
+                badge.style.color = '#10b981';
+                startBtn.textContent = '✅ سرور فعال شد';
+                setTimeout(checkOcrServerStatus, 2000);
+            } else if (res && res.needSetup) {
+                badge.innerHTML = '⚠️ ابتدا فایل setup_native_host را اجرا کنید.';
+                badge.style.color = '#f59e0b';
+                alert('برای فعالسازی دکمه استارت خودکار از مرورگر، یک‌بار فایل setup_native_host.sh (در مک) یا setup_native_host.bat (در ویندوز) را در پوشه local_ocr اجرا کنید.');
+            } else {
+                badge.innerHTML = '❌ خطا: ' + (res?.error || 'شروع سرور ناموفق بود');
+                badge.style.color = '#ef4444';
+            }
+        } catch (e) {
+            badge.innerHTML = '❌ خطا در ارسال دستور: ' + e.message;
+            badge.style.color = '#ef4444';
+        } finally {
+            startBtn.disabled = false;
+        }
+    });
 }
