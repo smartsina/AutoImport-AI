@@ -186,11 +186,12 @@ async function handleStartOcrServerNative(sendResponse) {
         if (chrome.runtime.sendNativeMessage) {
             chrome.runtime.sendNativeMessage('com.autoimport.ocr_launcher', { action: targetAction }, (response) => {
                 if (chrome.runtime.lastError) {
-                    logger.warn('Native messaging failed:', chrome.runtime.lastError.message);
+                    logger.warn('Native messaging failed:', chrome.runtime.lastError.message, 'Extension ID:', chrome.runtime.id);
                     sendResponse({
                         success: false,
                         needSetup: true,
-                        error: 'راه انداز لایو فعال نیست. لطفا فایل setup_native_host را در پوشه local_ocr اجرا کنید.'
+                        extId: chrome.runtime.id,
+                        error: `راه انداز لایو فعال نیست (${chrome.runtime.lastError.message}).`
                     });
                 } else {
                     logger.info('Native launcher response:', response);

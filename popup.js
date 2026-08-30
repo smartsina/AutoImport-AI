@@ -413,9 +413,10 @@ function setupNativeOcrLauncher() {
                 }
                 setTimeout(checkOcrServerStatus, 1500);
             } else if (res && res.needSetup) {
+                const extId = res.extId || '';
                 badge.innerHTML = '⚠️ ابتدا فایل setup_native_host را اجرا کنید.';
                 badge.style.color = '#f59e0b';
-                alert('برای فعالسازی دکمه استارت خودکار از مرورگر، یک‌بار فایل setup_native_host.sh (در مک) یا setup_native_host.bat (در ویندوز) را در پوشه local_ocr اجرا کنید.');
+                alert(`برای فعالسازی دکمه استارت، لطفاً یک‌بار این دستور را در ترمینال اجرا کنید:\n\nbash local_ocr/setup_native_host.sh ${extId}`);
             } else {
                 badge.innerHTML = '❌ خطا: ' + (res?.error || 'تغییر وضعیت سرور ناموفق بود');
                 badge.style.color = '#ef4444';
