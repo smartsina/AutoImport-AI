@@ -28,6 +28,27 @@ def is_server_running():
     except Exception:
         return False
 
+def is_mlx_running():
+    try:
+        req = urllib.request.Request('http://localhost:8111/v1/models')
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+def ensure_mlx_vlm_running():
+    if is_mlx_running():
+        return
+    mlx_venv_python = os.path.expanduser('~/.mlx_venv/bin/python3')
+    mlx_server_bin = os.path.expanduser('~/.mlx_venv/bin/mlx_vlm.server')
+
+    if os.path.exists(mlx_server_bin):
+        cmd = [mlx_venv_python, mlx_server_bin, '--model', 'PaddlePaddle/PaddleOCR-VL-1.6', '--port', '8111']
+        if os.name == 'nt':
+            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS)
+        else:
+            subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 def main():
     try:
         msg = read_message()
@@ -40,8 +61,11 @@ def main():
             send_message({'status': 'running' if running else 'stopped', 'running': running})
 
         elif action == 'start':
+            # ⚡ بررسی و روشن کردن مدل MLX-VLM (PaddleOCR-VL-1.6) در صورت خاموش بودن
+            ensure_mlx_vlm_running()
+
             if is_server_running():
-                send_message({'status': 'already_running', 'running': True, 'message': 'سرور OCR محلی هم‌اکنون فعال است.'})
+                send_message({'status': 'already_running', 'running': True, 'message': 'سرور OCR محلی و MLX-VLM هم‌اکنون فعال است.'})
                 return
 
             script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -54,7 +78,7 @@ def main():
             else:
                 subprocess.Popen([python_bin, server_py], cwd=script_dir, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-            send_message({'status': 'started', 'running': True, 'message': 'سرور OCR محلی با موفقیت روی لپ‌تاپ روشن شد.'})
+            send_message({'status': 'started', 'running': True, 'message': 'سرور OCR محلی و MLX-VLM (PaddleOCR-VL-1.6) با موفقیت روی لپ‌تاپ روشن شدند.'})
 
         else:
             send_message({'error': f'دستور نامشخص: {action}'})
