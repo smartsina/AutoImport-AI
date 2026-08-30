@@ -169,19 +169,22 @@ async function handleStartOcrServerNative(sendResponse) {
     try {
         const settings = await chrome.storage.local.get(['autoimport_ocr_server']);
         const baseUrl = (settings.autoimport_ocr_server || 'http://127.0.0.1:5151').replace(/\/+$/, '');
+        let isCurrentlyRunning = false;
+
         try {
             const healthRes = await Promise.race([
                 fetch(`${baseUrl}/health`),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1000))
             ]);
-            if (healthRes.ok) {
-                sendResponse({ success: true, running: true, message: 'سرور OCR محلی هم‌اکنون فعال است.' });
-                return;
-            }
-        } catch (e) { }
+            isCurrentlyRunning = healthRes.ok;
+        } catch (e) {
+            isCurrentlyRunning = false;
+        }
+
+        const targetAction = isCurrentlyRunning ? 'stop' : 'start';
 
         if (chrome.runtime.sendNativeMessage) {
-            chrome.runtime.sendNativeMessage('com.autoimport.ocr_launcher', { action: 'start' }, (response) => {
+            chrome.runtime.sendNativeMessage('com.autoimport.ocr_launcher', { action: targetAction }, (response) => {
                 if (chrome.runtime.lastError) {
                     logger.warn('Native messaging failed:', chrome.runtime.lastError.message);
                     sendResponse({
@@ -191,7 +194,11 @@ async function handleStartOcrServerNative(sendResponse) {
                     });
                 } else {
                     logger.info('Native launcher response:', response);
-                    sendResponse({ success: true, running: true, message: response?.message || 'سرور OCR روشن شد.' });
+                    sendResponse({
+                        success: true,
+                        running: targetAction === 'start',
+                        message: response?.message || (targetAction === 'start' ? 'سرور OCR روشن شد.' : 'سرور OCR خاموش شد.')
+                    });
                 }
             });
         } else {

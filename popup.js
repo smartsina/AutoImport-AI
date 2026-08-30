@@ -374,15 +374,15 @@ async function checkOcrServerStatus() {
             badge.innerHTML = '🟢 سرور OCR فعال است (پورت 5151)';
             badge.style.color = '#10b981';
             if (startBtn) {
-                startBtn.textContent = '✅ سرور در حال اجراست';
-                startBtn.style.opacity = '0.7';
+                startBtn.textContent = '🛑 خاموش کردن سرور OCR';
+                startBtn.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
             }
         } else {
             badge.innerHTML = '🔴 سرور OCR خاموش است';
             badge.style.color = '#ef4444';
             if (startBtn) {
                 startBtn.textContent = '🚀 روشن کردن سرور OCR روی لپ‌تاپ';
-                startBtn.style.opacity = '1';
+                startBtn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
             }
         }
     } catch (e) {
@@ -397,23 +397,27 @@ function setupNativeOcrLauncher() {
 
     startBtn.addEventListener('click', async () => {
         const badge = document.getElementById('ocr-status-badge');
-        badge.innerHTML = '⏳ در حال روشن کردن سرور OCR روی لپ‌تاپ...';
+        badge.innerHTML = '⏳ در حال تغییر وضعیت سرور OCR...';
         badge.style.color = '#f59e0b';
         startBtn.disabled = true;
 
         try {
             const res = await chrome.runtime.sendMessage({ action: 'startOcrServerNative' });
             if (res && res.success) {
-                badge.innerHTML = '🟢 سرور OCR با موفقیت روشن شد!';
-                badge.style.color = '#10b981';
-                startBtn.textContent = '✅ سرور فعال شد';
-                setTimeout(checkOcrServerStatus, 2000);
+                if (res.running) {
+                    badge.innerHTML = '🟢 سرور OCR با موفقیت روشن شد!';
+                    badge.style.color = '#10b981';
+                } else {
+                    badge.innerHTML = '🔴 سرور OCR با موفقیت خاموش شد.';
+                    badge.style.color = '#ef4444';
+                }
+                setTimeout(checkOcrServerStatus, 1500);
             } else if (res && res.needSetup) {
                 badge.innerHTML = '⚠️ ابتدا فایل setup_native_host را اجرا کنید.';
                 badge.style.color = '#f59e0b';
                 alert('برای فعالسازی دکمه استارت خودکار از مرورگر، یک‌بار فایل setup_native_host.sh (در مک) یا setup_native_host.bat (در ویندوز) را در پوشه local_ocr اجرا کنید.');
             } else {
-                badge.innerHTML = '❌ خطا: ' + (res?.error || 'شروع سرور ناموفق بود');
+                badge.innerHTML = '❌ خطا: ' + (res?.error || 'تغییر وضعیت سرور ناموفق بود');
                 badge.style.color = '#ef4444';
             }
         } catch (e) {

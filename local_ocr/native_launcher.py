@@ -49,6 +49,22 @@ def ensure_mlx_vlm_running():
         else:
             subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+def stop_server():
+    if os.name == 'nt':
+        try:
+            subprocess.run('for /f "tokens=5" %a in (\'netstat -aon ^| findstr :5151\') do taskkill /f /pid %a', shell=True, stderr=subprocess.DEVNULL)
+        except Exception: pass
+        try:
+            subprocess.run('for /f "tokens=5" %a in (\'netstat -aon ^| findstr :8111\') do taskkill /f /pid %a', shell=True, stderr=subprocess.DEVNULL)
+        except Exception: pass
+    else:
+        try:
+            subprocess.run('lsof -ti:5151 | xargs kill -9 2>/dev/null', shell=True)
+        except Exception: pass
+        try:
+            subprocess.run('lsof -ti:8111 | xargs kill -9 2>/dev/null', shell=True)
+        except Exception: pass
+
 def main():
     try:
         msg = read_message()
@@ -79,6 +95,10 @@ def main():
                 subprocess.Popen([python_bin, server_py], cwd=script_dir, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             send_message({'status': 'started', 'running': True, 'message': 'سرور OCR محلی و MLX-VLM (PaddleOCR-VL-1.6) با موفقیت روی لپ‌تاپ روشن شدند.'})
+
+        elif action == 'stop':
+            stop_server()
+            send_message({'status': 'stopped', 'running': False, 'message': 'سرور OCR محلی و MLX-VLM با موفقیت خاموش شدند.'})
 
         else:
             send_message({'error': f'دستور نامشخص: {action}'})
