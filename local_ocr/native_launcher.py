@@ -59,6 +59,9 @@ def stop_server():
         except Exception: pass
     else:
         try:
+            subprocess.run('docker stop vv_ocr 2>/dev/null', shell=True)
+        except Exception: pass
+        try:
             subprocess.run('lsof -ti:5151 | xargs kill -9 2>/dev/null', shell=True)
         except Exception: pass
         try:
@@ -77,6 +80,11 @@ def main():
             send_message({'status': 'running' if running else 'stopped', 'running': running})
 
         elif action == 'start':
+            # توقف کانتینر داکر قدیمی در صورت وجود برای جلوگیری از تصاحب پورت 5151
+            try:
+                subprocess.run('docker stop vv_ocr 2>/dev/null', shell=True)
+            except Exception: pass
+
             # ⚡ بررسی و روشن کردن مدل MLX-VLM (PaddleOCR-VL-1.6) در صورت خاموش بودن
             ensure_mlx_vlm_running()
 

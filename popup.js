@@ -7,10 +7,12 @@ const log = {
 
 // === نقشه مدل‌ها به endpoint ها ===
 const MODEL_OPTIONS = {
-    gemini:  { model: 'Gemini-3.1-Pro-Preview', display: 'Gemini 3.1 Pro 👁️', vision: true },
-    gptOSS:  { model: 'GPT-OSS-120B',          display: 'GPT-OSS 120B',      vision: false },
-    gptMini: { model: 'GPT-5-Mini',             display: 'GPT-5 Mini',        vision: false },
-    claude:  { model: 'Claude-Opus-4.7',         display: 'Claude Opus 4.7 👁️', vision: true }
+    gemini:      { model: 'Gemini-3.1-Pro-Preview', display: 'Gemini 3.1 Pro 👁️', vision: true },
+    gptOSS:      { model: 'GPT-OSS-120B',          display: 'GPT-OSS 120B',      vision: false },
+    gptMini:     { model: 'GPT-5-Mini',             display: 'GPT-5 Mini',        vision: false },
+    claude:      { model: 'Claude-Opus-4.7',         display: 'Claude Opus 4.7 👁️', vision: true },
+    localQwen35: { model: 'qwen3.5-35b-a3b',       display: 'Qwen 3.5 35B (LM Studio محلی) ⚡', vision: true, isLocal: true },
+    localQwen27: { model: 'qwen3.8-27b@iq2_s',     display: 'Qwen 3.8 27B (LM Studio محلی) ⚡', vision: true, isLocal: true }
 };
 
 let _endpoints = {};
@@ -25,6 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupConfigSave();
     setupNativeOcrLauncher();
     checkOcrServerStatus();
+    checkLmStudioStatus();
 });
 
 // ===== مدیریت تب‌ها =====
@@ -72,6 +75,8 @@ async function loadConfigForm() {
 
         // ذخیره endpoints برای استفاده بعدی
         _endpoints = cfg.endpoints || {};
+        if (!_endpoints.localQwen35) _endpoints.localQwen35 = 'http://127.0.0.1:1234/api/v1/chat';
+        if (!_endpoints.localQwen27) _endpoints.localQwen27 = 'http://127.0.0.1:1234/api/v1/chat';
 
         setVal('cfg-apikey', cfg.apiKey || '');
 
@@ -98,12 +103,20 @@ function populateModelDropdowns(cfg) {
     const visionSelect = document.getElementById('cfg-vision-model');
     const textSelect   = document.getElementById('cfg-text-model');
     const endpoints    = cfg.endpoints || {};
+    if (!endpoints.localQwen35) endpoints.localQwen35 = 'http://127.0.0.1:1234/api/v1/chat';
+    if (!endpoints.localQwen27) endpoints.localQwen27 = 'http://127.0.0.1:1234/api/v1/chat';
 
     visionSelect.innerHTML = '';
     textSelect.innerHTML = '';
 
     for (const [key, info] of Object.entries(MODEL_OPTIONS)) {
-        if (!endpoints[key]) continue;
+        if (!endpoints[key]) {
+            if (info.isLocal) {
+                endpoints[key] = 'http://127.0.0.1:1234/api/v1/chat';
+            } else {
+                continue;
+            }
+        }
 
         const vOpt = new Option(info.display, key);
         visionSelect.add(vOpt);
@@ -122,15 +135,19 @@ function populateModelDropdowns(cfg) {
     }
 
     // نمایش endpoint ها
-    updateEndpointDisplay('cfg-vision-endpoint', endpoints[visionSelect.value]);
-    updateEndpointDisplay('cfg-text-endpoint',   endpoints[textSelect.value]);
+    updateEndpointDisplay('cfg-vision-endpoint', endpoints[visionSelect.value] || '');
+    updateEndpointDisplay('cfg-text-endpoint',   endpoints[textSelect.value] || '');
 
     // Event listeners
     visionSelect.addEventListener('change', () => {
-        updateEndpointDisplay('cfg-vision-endpoint', endpoints[visionSelect.value]);
+        updateEndpointDisplay('cfg-vision-endpoint', endpoints[visionSelect.value] || '');
+        if (MODEL_OPTIONS[visionSelect.value]?.isLocal) {
+            textSelect.value = visionSelect.value;
+            updateEndpointDisplay('cfg-text-endpoint', endpoints[textSelect.value] || '');
+        }
     });
     textSelect.addEventListener('change', () => {
-        updateEndpointDisplay('cfg-text-endpoint', endpoints[textSelect.value]);
+        updateEndpointDisplay('cfg-text-endpoint', endpoints[textSelect.value] || '');
     });
 }
 
@@ -147,12 +164,20 @@ function setupConfigSave() {
         const visionInfo = MODEL_OPTIONS[visionKey];
         const textInfo   = MODEL_OPTIONS[textKey];
 
+        let targetTextModel = textInfo?.model || '';
+        let targetTextEndpoint = _endpoints[textKey] || '';
+        if (visionInfo?.isLocal && !textInfo?.isLocal) {
+            targetTextModel = visionInfo.model;
+            targetTextEndpoint = _endpoints[visionKey] || 'http://127.0.0.1:1234/api/v1/chat';
+        }
+
         const newCfg = {
             apiKey:              getVal('cfg-apikey'),
             visionModel:         visionInfo?.model || '',
             visionEndpoint:      _endpoints[visionKey] || '',
-            textModel:           textInfo?.model || '',
-            textEndpoint:        _endpoints[textKey] || '',
+            textModel:           targetTextModel,
+            textEndpoint:        targetTextEndpoint,
+            endpoints:           _endpoints,
             defaultReceiver:     getVal('cfg-receiver'),
             defaultReceiverCode: getVal('cfg-receiver-code'),
             referralPersonName:  getVal('cfg-ref-name'),
@@ -429,3 +454,27 @@ function setupNativeOcrLauncher() {
         }
     });
 }
+
+async function checkLmStudioStatus() {
+    const badge = document.getElementById('lmstudio-status-badge');
+    if (!badge) return;
+
+    try {
+        const res = await chrome.runtime.sendMessage({ action: 'checkLmStudioStatus' });
+        if (res && res.running) {
+            let loadedText = '';
+            if (res.loadedModels && res.loadedModels.length > 0) {
+                loadedText = ` (مدل لود شده: ${res.loadedModels.join(', ')})`;
+            }
+            badge.innerHTML = `🟢 سرور LM Studio فعال است (پورت 1234)${loadedText}`;
+            badge.style.color = '#10b981';
+        } else {
+            badge.innerHTML = '⚪ سرور LM Studio در دسترس نیست (پورت 1234)';
+            badge.style.color = '#64748b';
+        }
+    } catch (e) {
+        badge.innerHTML = '⚪ سرور LM Studio در دسترس نیست (پورت 1234)';
+        badge.style.color = '#64748b';
+    }
+}
+

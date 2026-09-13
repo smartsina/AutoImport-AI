@@ -1,0 +1,19 @@
+#!/bin/bash
+PROJECT_DIR="/Users/sina/Documents/macbook Air/AutoImport-AI"
+OCR_PORT=5151
+
+osascript -e 'display notification "در حال توقف سرویس‌های OCR و آزادسازی حافظه رم..." with title "خاموش کردن AutoImport AI"'
+
+# ۱. متوقف کردن پروسه‌های سرور OCR محلی
+pkill -f "local_ocr/server.py" 2>/dev/null || true
+lsof -ti:$OCR_PORT | xargs kill -9 2>/dev/null || true
+
+# ۲. متوقف کردن سرور شتاب‌دهنده MLX-VLM و آزادسازی حافظه گرافیکی Unified Memory
+pkill -f "mlx_vlm.server" 2>/dev/null || true
+lsof -ti:8111 | xargs kill -9 2>/dev/null || true
+
+# ۳. خاموش کردن کانتینر داکر در صورت اجرا
+docker stop vv_ocr 2>/dev/null || true
+
+# ۴. اعلام اتمام عملیات
+osascript -e 'display notification "تمامی سرویس‌های OCR متوقف و حافظه رم آزاد شد." with title "AutoImport AI - توقف کامل"'

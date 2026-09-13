@@ -1,0 +1,58 @@
+#!/bin/bash
+PROJECT_DIR="/Users/sina/Documents/macbook Air/AutoImport-AI"
+MLX_PYTHON="$HOME/.mlx_venv/bin/python3"
+MLX_SERVER="$HOME/.mlx_venv/bin/mlx_vlm.server"
+LMS_CLI="$HOME/.lmstudio/bin/lms"
+OCR_PORT=5151
+PYTHON_BIN="/Library/Frameworks/Python.framework/Versions/3.14/bin/python3"
+
+if [ ! -f "$PYTHON_BIN" ]; then
+    PYTHON_BIN="python3"
+fi
+
+# ۱. اعلان شروع به کاربر
+osascript -e 'display notification "در حال راه‌اندازی سرور OCR و ملزومات هوش مصنوعی..." with title "AutoImport AI"'
+
+# ۲. بررسی و اجرای سرور هوش مصنوعی MLX-VLM (پورت 8111) روی گرافیک Metal
+MLX_RUNNING=$(curl -s http://localhost:8111/v1/models 2>/dev/null)
+if [[ -z "$MLX_RUNNING" ]]; then
+    if [[ -f "$MLX_SERVER" && -f "$MLX_PYTHON" ]]; then
+        nohup "$MLX_PYTHON" "$MLX_SERVER" --model PaddlePaddle/PaddleOCR-VL-1.6 --port 8111 > /tmp/autoimport_mlx.log 2>&1 &
+        sleep 1
+    fi
+fi
+
+# ۳. بررسی و استارت سرور LM Studio در صورت وجود CLI
+LMS_RUNNING=$(curl -s http://127.0.0.1:1234/api/v1/models 2>/dev/null)
+if [[ -z "$LMS_RUNNING" ]]; then
+    if [[ -x "$LMS_CLI" ]]; then
+        nohup "$LMS_CLI" server start > /tmp/autoimport_lms.log 2>&1 &
+        sleep 1
+    fi
+fi
+
+# ۴. راه‌اندازی سرور OCR محلی روی پورت 5151
+if ! curl -s http://127.0.0.1:$OCR_PORT/health >/dev/null 2>&1 && ! curl -s http://127.0.0.1:$OCR_PORT/status >/dev/null 2>&1; then
+    docker stop vv_ocr 2>/dev/null || true
+    lsof -ti:$OCR_PORT | xargs kill -9 2>/dev/null || true
+    sleep 0.5
+    cd "$PROJECT_DIR"
+    nohup "$PYTHON_BIN" "$PROJECT_DIR/local_ocr/server.py" > /tmp/autoimport_ocr.log 2>&1 &
+fi
+
+# ۵. انتظار برای پاسخ‌دهی سرور OCR
+READY=false
+for i in {1..25}; do
+    if curl -s http://127.0.0.1:$OCR_PORT/health >/dev/null 2>&1 || curl -s http://127.0.0.1:$OCR_PORT/status >/dev/null 2>&1; then
+        READY=true
+        break
+    fi
+    sleep 0.5
+done
+
+# ۶. اعلان وضعیت نهایی
+if [ "$READY" = true ]; then
+    osascript -e 'display notification "سرور OCR محلی و ملزومات هوش مصنوعی با موفقیت فعال شد! (پورت ۵۱۵۱)" with title "AutoImport AI"'
+else
+    osascript -e 'display notification "سرور در حال بالا آمدن است. لاگ‌ها در /tmp/autoimport_ocr.log قابل مشاهده است." with title "AutoImport AI"'
+fi

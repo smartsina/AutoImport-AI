@@ -31,6 +31,12 @@
     color: #fff;
     font-size: 13px;
     font-weight: bold;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.ai-panel-header:active {
+    cursor: grabbing;
 }
 
 .ai-panel-header button {
@@ -162,3 +168,15 @@
 .ai-notif-error   { background: #7f1d1d; color: #fca5a5; border: 1px solid #dc2626; }
 .ai-notif-warning { background: #78350f; color: #fcd34d; border: 1px solid #d97706; }
 .ai-notif-info    { background: #1e1b4b; color: #a5b4fc; border: 1px solid #4f46e5; }
+
+/* پاپ‌آپ شناور تخلیه اتوماتیک */
+#ai-autoempty-overlay {
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: box-shadow 0.2s ease;
+}
+#ai-autoempty-overlay:active {
+    cursor: grabbing;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.45) !important;
+}

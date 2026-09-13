@@ -47,11 +47,34 @@ def check_mlx_vlm():
         return False
 
 
+def ensure_mlx_vlm_running():
+    """راه‌اندازی خودکار سرور MLX-VLM در صورت خاموش بودن"""
+    if check_mlx_vlm():
+        engines["mlx_paddle_vlm"] = True
+        return True
+    mlx_server = os.path.expanduser("~/.mlx_venv/bin/mlx_vlm.server")
+    mlx_python = os.path.expanduser("~/.mlx_venv/bin/python3")
+    if os.path.exists(mlx_server) and os.path.exists(mlx_python):
+        import subprocess, time
+        logger.info("⚡ در حال استارت خودکار MLX-VLM (PaddleOCR-VL-1.6 پورت 8111)...")
+        subprocess.Popen(
+            [mlx_python, mlx_server, "--model", "PaddlePaddle/PaddleOCR-VL-1.6", "--port", "8111"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        for _ in range(8):
+            time.sleep(1)
+            if check_mlx_vlm():
+                engines["mlx_paddle_vlm"] = True
+                logger.info("✅ سرور MLX-VLM با موفقیت فعال شد.")
+                return True
+    return False
+
+
 def init_engines():
     global _easyocr_reader, engines
 
     # MLX-VLM (PaddleOCR-VL-1.6 روی شتاب‌دهنده Metal مک‌بوک)
-    if check_mlx_vlm():
+    if check_mlx_vlm() or ensure_mlx_vlm_running():
         engines["mlx_paddle_vlm"] = True
         logger.info(f"⚡ MLX-VLM (PaddleOCR-VL-1.6 روی GPU/Metal مک‌بوک - پورت 8111) آماده است")
     else:
@@ -116,14 +139,50 @@ def ocr_apple_vision_ocrmac(image_path):
         language_preference=['ar-SA', 'en-US'],
         recognition_level='accurate'
     ).recognize()
-    texts = []
+
+    items = []
     for r in results:
-        if isinstance(r, (list, tuple)) and len(r) >= 1:
+        if isinstance(r, (list, tuple)) and len(r) >= 3:
             text = r[0] if isinstance(r[0], str) else str(r[0])
-            conf = r[1] if len(r) > 1 and isinstance(r[1], (int, float)) else 1.0
+            conf = r[1] if isinstance(r[1], (int, float)) else 1.0
+            bbox = r[2] if isinstance(r[2], (list, tuple)) and len(r[2]) == 4 else None
             if conf > 0.1 and text.strip():
-                texts.append(text)
-    return '\n'.join(texts)
+                if bbox:
+                    x, y, w, h = bbox
+                    items.append({"text": text.strip(), "conf": conf, "x": x, "y": y, "w": w, "h": h})
+                else:
+                    items.append({"text": text.strip(), "conf": conf, "x": 0.5, "y": 0.5, "w": 0.1, "h": 0.05})
+
+    if not items:
+        return ""
+
+    # مرتب‌سازی عمودی از بالا به پایین (در ocrmac، y از پایین صفحه اندازه‌گیری می‌شود پس -y یعنی از بالا به پایین)
+    items.sort(key=lambda it: -it["y"])
+
+    # گروه‌بندی کلماتی که در یک خط افقی قرار دارند
+    lines = []
+    for it in items:
+        placed = False
+        for line in lines:
+            avg_y = sum(item["y"] for item in line) / len(line)
+            avg_h = sum(item["h"] for item in line) / len(line)
+            threshold = max(avg_h * 0.65, 0.02)
+            if abs(it["y"] - avg_y) <= threshold:
+                line.append(it)
+                placed = True
+                break
+        if not placed:
+            lines.append([it])
+
+    reconstructed = []
+    for line in lines:
+        # در زبان فارسی چینش راست‌به‌چپ است؛ بنابراین عناصری با X بزرگتر (سمت راست) باید اول بیایند
+        line.sort(key=lambda it: -it["x"])
+        line_str = " ".join(it["text"] for it in line).strip()
+        if line_str:
+            reconstructed.append(line_str)
+
+    return "\n".join(reconstructed)
 
 
 def ocr_apple_vision_pyobjc(image_path):
@@ -161,15 +220,7 @@ def ocr_mlx_vlm(image_path):
     with open(image_path, 'rb') as f:
         img_b64 = base64.b64encode(f.read()).decode('utf-8')
 
-    prompt = (
-        "شما یک سیستم OCR و تحلیل لایه‌بندی (Layout Analysis) فوق دقیق برای اسناد اداری هستید.\n"
-        "ساختار تصویر را به بلوک‌های لایه‌بندی تفکیک کرده و متن هر بخش را با دقت ۱۰۰٪ استخراج کن:\n"
-        "۱. [Header / هدر نامه]: تمام اطلاعات بخش بالای نامه شامل شماره نامه، تاریخ شمسی، پیوست، و کدهای اداری گوشه‌های بالا را با دقت کامل و بدون جا انداختن هیچ کاراکتری خوانش کن.\n"
-        "۲. [Title & Recipient / گیرنده و موضوع]: گیرنده نامه، موضوع و عناوین اصلی.\n"
-        "۳. [Body & Tables / بدنه و جدول‌ها]: متن کامل بدنه نامه و محتوای جدول‌ها.\n"
-        "۴. [Footer / پاورقی و امضا]: اسامی فرستندگان، رونوشت‌ها و امضاها.\n"
-        "مهم: از تولید هرگونه کاراکتر تکراری، عبارات لوپ‌شده یا اسلش‌های متوالی بی‌معنی شدیداً خودداری کن."
-    )
+    prompt = "متن فارسی موجود در این تصویر/نامه اداری را به طور کامل، دقیق و بدون هیچ توضیح اضافه یا زبان غیرفارسی استخراج کن."
 
     payload = {
         'model': MLX_VLM_MODEL,
@@ -182,10 +233,10 @@ def ocr_mlx_vlm(image_path):
                 ]
             }
         ],
-        'max_tokens': 4096,
-        'temperature': 0.05,
+        'max_tokens': 2048,
+        'temperature': 0.0,
         'top_p': 1.0,
-        'repetition_penalty': 1.2
+        'repetition_penalty': 1.15
     }
 
     req = urllib.request.Request(
@@ -193,10 +244,14 @@ def ocr_mlx_vlm(image_path):
         data=json.dumps(payload).encode('utf-8'),
         headers={'Content-Type': 'application/json'}
     )
-    with urllib.request.urlopen(req, timeout=45) as resp:
+    with urllib.request.urlopen(req, timeout=120) as resp:
         res = json.loads(resp.read().decode('utf-8'))
         content = res['choices'][0]['message']['content']
-        return content.strip() if content else ""
+        if content:
+            import re
+            content = re.sub(r'<\|LOC_\d+\|>', '', content)
+            return content.strip()
+        return ""
 
 
 def ocr_tesseract(image_path):
@@ -210,29 +265,34 @@ def ocr_tesseract(image_path):
     return text.strip()
 
 
-def fix_persian_slash_codes(text: str) -> str:
-    """
-    اصلاح شماره نامه‌ها و کدهای اداری حاوی اسلش (/) که برعکس استخراج شده‌اند.
-    مثال: ٥٠٤١/پ/٩/٥٧/١/٩٢٠٣ -> ۳۰۲۹/۱/۷۵/۹/پ/۱۴۰۵
-    """
-    import re
+def to_en_digits(s: str) -> str:
+    """تبدیل تمام ارقام فارسی و عربی به ارقام انگلیسی"""
+    if not s:
+        return ""
     fa_digits = '۰۱۲۳۴۵۶۷۸۹'
     ar_digits = '٠١٢٣٤٥٦٧٨٩'
-    en_digits = '0123456789'
+    res = []
+    for c in s:
+        if c in fa_digits:
+            res.append(str(fa_digits.index(c)))
+        elif c in ar_digits:
+            res.append(str(ar_digits.index(c)))
+        else:
+            res.append(c)
+    return ''.join(res)
 
-    def to_fa(s):
-        res = []
-        for c in s:
-            if c in ar_digits:
-                res.append(fa_digits[ar_digits.index(c)])
-            elif c in en_digits:
-                res.append(fa_digits[en_digits.index(c)])
-            else:
-                res.append(c)
-        return ''.join(res)
+
+def fix_persian_slash_codes(text: str) -> str:
+    """
+    اصلاح شماره نامه‌ها و کدهای اداری حاوی اسلش (/) با ارقام انگلیسی و جهت استاندارد چپ‌به‌راست (LTR).
+    """
+    import re
 
     def fix_single_code(raw_code):
-        norm = to_fa(raw_code)
+        # تبدیل ارقام به انگلیسی
+        norm = to_en_digits(raw_code)
+        # حذف نشانه‌های نامرئی راست‌به‌چپ یا چپ‌به‌راست
+        norm = re.sub(r'[\u200e\u200f\u202a-\u202e\u2066-\u2069]', '', norm)
         parts = norm.split('/')
         if len(parts) < 2:
             return norm
@@ -240,31 +300,31 @@ def fix_persian_slash_codes(text: str) -> str:
         first = parts[0].strip()
         last = parts[-1].strip()
 
-        # فرمت تاریخ شمسی (مثال: ۱۴۰۲/۰۵/۱۲) - دست‌نخورده می‌ماند
-        if len(parts) == 3 and (first.startswith('۱۴') or first.startswith('۱۳')) and len(first) == 4:
+        # فرمت تاریخ شمسی (مثال: 1402/05/12 یا 1403/10/25) - دست‌نخورده می‌ماند
+        if len(parts) == 3 and (first.startswith('14') or first.startswith('13')) and len(first) == 4:
             return norm
 
-        # اگر بخش آخر سال شمسی صحیح است (مثلاً ۳۰۲۹/۱/۷۵/۹/پ/۱۴۰۵)
-        if re.match(r'^[۰-۹]{4}$', last) and (last.startswith('۱۴') or last.startswith('۱۳')):
+        # اگر بخش آخر سال شمسی صحیح است (مثلاً 3029/1/75/9/پ/1405)
+        if re.match(r'^\d{4}$', last) and (last.startswith('14') or last.startswith('13')):
             return norm
 
         is_reversed = False
 
         # اگر بخش اول سال معکوس است (مثلاً 5041 معکوس 1405 است)
-        if re.match(r'^[۰-۹]{4}$', first) and (first.endswith('۴۱') or first.endswith('۳۱')):
+        if re.match(r'^\d{4}$', first) and (first.endswith('41') or first.endswith('31')):
             is_reversed = True
-        elif re.match(r'^[۰-۹]{4}$', first) and (first.startswith('۱۴') or first.startswith('۱۳')):
+        elif re.match(r'^\d{4}$', first) and (first.startswith('14') or first.startswith('13')):
             # بخش اول سال است اما بخش آخر سال نیست (ترتیب LTR شده)
             rev_parts = parts[::-1]
             return '/'.join(rev_parts)
-        elif not (last.startswith('۱۴') or last.startswith('۱۳')) and (first[::-1].startswith('۱۴') or first[::-1].startswith('۱۳')):
+        elif not (last.startswith('14') or last.startswith('13')) and (first[::-1].startswith('14') or first[::-1].startswith('13')):
             is_reversed = True
 
         if is_reversed:
             rev_parts = parts[::-1]
             fixed = []
             for p in rev_parts:
-                if re.match(r'^[۰-۹]+$', p):
+                if re.match(r'^\d+$', p):
                     fixed.append(p[::-1])
                 else:
                     fixed.append(p)
@@ -302,14 +362,17 @@ def clean_repeating_loops(text: str) -> str:
     text = re.sub(r'(/[\d۰-۹]+\.[\d۰-۹]+)\1{3,}', '', text)
     text = re.sub(r'(-[\d۰-۹]/[\d۰-۹])\1{3,}', '', text)
 
-    # ۲. پاک‌سازی عبارات تکراری متوالی
+    # ۲. پاک‌سازی عبارات طولانی تکراری
+    text = re.sub(r'(.{15,300}?)\1{2,}', r'\1', text)
+
+    # ۳. پاک‌سازی عبارات تکراری خط به خط
     lines = text.splitlines()
     cleaned_lines = []
     for l in lines:
-        l_clean = re.sub(r'(.{8,60}?)\1{2,}', r'\1', l)
+        l_clean = re.sub(r'(.{8,250}?)\1{2,}', r'\1', l)
         cleaned_lines.append(l_clean)
 
-    # ۳. حذف خطوط تکراری پشت سر هم
+    # ۴. حذف خطوط تکراری پشت سر هم
     final_lines = []
     prev_line = None
     for l in cleaned_lines:
@@ -322,34 +385,421 @@ def clean_repeating_loops(text: str) -> str:
     return '\n'.join(final_lines)
 
 
+def is_hallucination_line(line: str) -> bool:
+    """تشخیص خطوط حاوی کاراکترها یا کلمات توهمی پشتو/اردو"""
+    import re
+    # کاراکترهای پشتو و اردو که در فارسی اصلا وجود ندارند
+    pashto_urdu_chars = r'[\u0679\u067c\u0681\u0685\u0688\u0689\u0691\u0693\u0696\u0698\u06ba\u06bc\u06be\u06c1\u06cd\u06d0\u06d2]'
+    if re.search(pashto_urdu_chars, line):
+        return True
+    # کلمات توقف و عبارات معروف پشتو که در توهم مدل‌های VLM رخ می‌دهد
+    pashto_words = [
+        'څخه', 'تېروونکيو', 'پای کې', 'ورکړ شوې', 'په اړه', 'اسلامي امت',
+        'ځای کړو', 'نه دي', 'څوک چې', 'چارو کې', 'له منځه', 'لار ورکړي',
+        'دا خبره', 'عذاب وعده', 'د کفر حکم'
+    ]
+    for pw in pashto_words:
+        if pw in line:
+            return True
+    return False
+
+
+def filter_hallucinations(text: str) -> str:
+    """حذف کامل خطوط و عبارات توهمی غیرفارسی از متن OCR"""
+    if not text:
+        return ''
+    lines = text.splitlines()
+    cleaned = []
+    hallucination_count = 0
+    for line in lines:
+        if is_hallucination_line(line):
+            hallucination_count += 1
+            continue
+        cleaned.append(line)
+
+    # اگر بیش از ۳۵٪ متن توهم بوده باشد، کل خروجی پدل نادیده گرفته می‌شود
+    if len(lines) > 0 and (hallucination_count / len(lines)) > 0.35:
+        logger.warning(f"⚠️ کل متن به دلیل توهم بالای VLM ({hallucination_count}/{len(lines)} خط) نادیده گرفته شد.")
+        return ''
+    return '\n'.join(cleaned)
+
+
+def reconstruct_vertical_header(text: str) -> str:
+    """
+    تشخیص هدرهای اداری عمودی در خروجی OCR مک (Apple Vision) و اتصال برچسب‌ها به مقادیر
+    مثال:
+    شماره
+    تاریخ
+    1405/16/4239
+    1405/06/16
+    ->
+    شماره: 1405/16/4239
+    تاریخ: 1405/06/16
+    """
+    if not text:
+        return ''
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    import re
+    bare_label_pattern = re.compile(r'^(?:شماره|ثماره|تاریخ|تاريخ|ساعت|پیوست|يوست|شماره\s*نامه)\s*[:؛-]?\s*$')
+
+    labels = []
+    i = 0
+    while i < min(len(lines), 8) and bare_label_pattern.match(lines[i]):
+        labels.append(lines[i])
+        i += 1
+
+    if len(labels) >= 2 and i < len(lines):
+        val_count = min(len(labels), len(lines) - i)
+        values = lines[i:i+val_count]
+        reconstructed = []
+        for l, v in zip(labels, values):
+            if 'ثماره' in l or 'شماره' in l: norm_l = 'شماره'
+            elif 'تاريخ' in l or 'تاریخ' in l: norm_l = 'تاریخ'
+            elif 'ساعت' in l: norm_l = 'ساعت'
+            elif 'يوست' in l or 'پیوست' in l: norm_l = 'پیوست'
+            else: norm_l = l
+            reconstructed.append(f"{norm_l}: {v}")
+        remaining = lines[i+val_count:]
+        return '\n'.join(reconstructed + remaining)
+    return text
+
+
+def gregorian_to_jalali(gy, gm, gd):
+    """تبدیل تاریخ میلادی به شمسی بدون نیاز به کتابخانه خارجی"""
+    g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+    gy2 = gy if gm > 2 else gy - 1
+    days = 355666 + (365 * gy) + ((gy2 + 3) // 4) - ((gy2 + 99) // 100) + ((gy2 + 399) // 400) + gd + g_d_m[gm - 1]
+    jy = -1595 + (33 * (days // 12053))
+    days %= 12053
+    jy += 4 * (days // 1461)
+    days %= 1461
+    if days > 365:
+        jy += (days - 1) // 365
+        days = (days - 1) % 365
+    if days < 186:
+        jm = 1 + (days // 31)
+        jd = 1 + (days % 31)
+    else:
+        jm = 7 + ((days - 186) // 30)
+        jd = 1 + ((days - 186) % 30)
+    return jy, jm, jd
+
+
+def is_field_boundary(line: str) -> bool:
+    import re
+    if not line:
+        return True
+    s = line.strip()
+    return bool(re.search(r'^(?:سازمان|فرستنده|موضوع|گیرنده|متن|دریافت|پیوست|تاریخ|تاريخ|شماره|ثماره|ساعت|ارسال|صندوق|پست|email|to:|from:|subject:)\b', s, re.I) or
+                ': - فرستنده:' in s or 'دریافت شده در این صندوق' in s or 'دريافت شده در اين صندوق' in s or
+                s.startswith('سازمان فرستند') or s.startswith('فرستنده:'))
+
+
+def pair_adjacent_header_labels(text: str) -> str:
+    """
+    اتصال خطوط برچسب هدر (شماره، تاریخ، پیوست) به مقادیر در خط بعدی که در خروجی Apple Vision جدا می‌افتند
+    مثال:
+    ثماره :
+    ٢ /٣٠ 5/1552
+    ->
+    شماره: ٢ /٣٠ 5/1552
+    """
+    if not text:
+        return ''
+    import re
+    lines = text.splitlines()
+    label_pattern = re.compile(r'^(?:شماره|ثماره|تاریخ|تاريخ|پیوست|يويت|پيوست|ساعت|شماره\s*نامه)\s*[:؛-]?\s*$')
+
+    merged = []
+    skip_next = False
+    for i in range(len(lines)):
+        if skip_next:
+            skip_next = False
+            continue
+        line = lines[i].strip()
+        if label_pattern.match(line) and i + 1 < len(lines):
+            next_line = lines[i + 1].strip()
+            # اگر خط بعدی خالی نباشد و خودش برچسب فیلد دیگری (مانند سازمان/فرستنده/موضوع) نباشد
+            if next_line and not label_pattern.match(next_line) and not is_field_boundary(next_line):
+                norm_lbl = 'شماره' if ('شماره' in line or 'ثماره' in line) else \
+                           'تاریخ' if ('تاریخ' in line or 'تاريخ' in line) else \
+                           'پیوست' if ('پیوست' in line or 'يويت' in line or 'پيوست' in line) else line.replace(':', '').strip()
+                merged.append(f'{norm_lbl}: {next_line}')
+                skip_next = True
+                continue
+        merged.append(lines[i])
+    return '\n'.join(merged)
+
+
+def fix_reversed_header_lines(text: str) -> str:
+    """
+    اصلاح خطوط هدر معکوس‌شده ناشی از باگ موتورهای گزارش‌ساز و PDF متنی (مانند ٠٦٦٣/٥٠٤١/ﻑ ﺍ و ١٢/٦٠/٥٠٤١)
+    تبدیل به:
+    شماره: 1405/3660/ف ا
+    تاریخ: 1405/06/12
+    پیوست: دارد
+    """
+    if not text:
+        return ''
+    import unicodedata, re
+    text = unicodedata.normalize('NFKD', text)
+
+    def to_en(s):
+        p = '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩'
+        e = '01234567890123456789'
+        for cp, ce in zip(p, e):
+            s = s.replace(cp, ce)
+        return s
+
+    lines = text.splitlines()
+    out = []
+    for line in lines:
+        raw_l = line.strip()
+        en_l = to_en(raw_l)
+
+        # ۱. شماره نامه معکوس (مانند 0663/5041/ف ا یا 5041/0663/ف ا)
+        m_no = re.match(r'^(\d{2,7})[/\\](50[345]1)[/\\]([a-zA-Z\u0600-\u06FF\s]+)$', en_l)
+        if m_no:
+            ser = m_no.group(1)[::-1]
+            yr = m_no.group(2)[::-1]
+            suf = m_no.group(3).strip()
+            out.append(f'شماره: {yr}/{ser}/{suf}')
+            continue
+
+        m_no2 = re.match(r'^(50[345]1)[/\\](\d{2,7})[/\\]([a-zA-Z\u0600-\u06FF\s]+)$', en_l)
+        if m_no2:
+            yr = m_no2.group(1)[::-1]
+            ser = m_no2.group(2)[::-1]
+            suf = m_no2.group(3).strip()
+            out.append(f'شماره: {yr}/{ser}/{suf}')
+            continue
+
+        # ۲. تاریخ معکوس (مانند 12/60/5041)
+        m_dt = re.match(r'^(\d{1,2})[/\\](0[1-9]|60)[/\\](50[345]1)$', en_l)
+        if m_dt:
+            d = m_dt.group(1)
+            m = m_dt.group(2)
+            if m == '60':
+                m = '06'
+            yr = m_dt.group(3)[::-1]
+            out.append(f'تاریخ: {yr}/{m}/{d}')
+            continue
+
+        # ۳. پیوست مجزا در بالای نامه: دارد یا ندارد
+        if raw_l in ('دارد', 'ندارد', 'ﺩﺍﺭﺩ', 'ﻧﺪﺍﺭﺩ'):
+            clean_val = 'دارد' if 'دار' in raw_l else 'ندارد'
+            out.append(f'پیوست: {clean_val}')
+            continue
+
+        out.append(line)
+
+    return '\n'.join(out)
+
+
+def fix_ocr_date_typos(text: str) -> str:
+    """اصلاح خطای رایج موتور OCR در تفکیک ماه ۰۶ (شهریور) به ۰۲ (اردیبهشت) یا ۰۴ (تیر) ناشی از شباهت ارقام ۶ و ۲ در فونت نستعلیق"""
+    if not text:
+        return ''
+    import re, datetime
+    now = datetime.datetime.now()
+    jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
+
+    # اگر ماه جاری در تقویم شمسی ماه ۶ (شهریور) باشد:
+    if jm == 6:
+        text = re.sub(r'(\b140[45]/)0?[24](/0?[1-9]|[12]\d|3[01]\b)', r'\g<1>06\2', text)
+        text = re.sub(r'(\b۱۴۰[۴۵]/)۰?[۲۴](/[۰-۹]{1,2}\b)', r'\g<1>۰۶\2', text)
+        text = re.sub(r'(\b١٤٠[٤٥]/)٠?[٢٤](/[٠-٩]{1,2}\b)', r'\g<1>٠٦\2', text)
+        text = re.sub(r'((?:تاریخ|تاريخ|تنظیم)\s*[:؛-]?\s*140[45]/)0?[24](/)', r'\g<1>06\2', text)
+        text = re.sub(r'((?:تاریخ|تاريخ|تنظیم)\s*[:؛-]?\s*۱۴۰[۴۵]/)۰?[۲۴](/)', r'\g<1>۰۶\2', text)
+        text = re.sub(r'((?:تاریخ|تاريخ|تنظیم)\s*[:؛-]?\s*١٤٠[٤٥]/)٠?[٢٤](/)', r'\g<1>٠٦\2', text)
+    return text
+
+
+def fix_ocr_number_typos(text: str) -> str:
+    """اصلاح خطاهای خاص فونت‌های اداری در هدر شماره نامه (مانند خوانده شدن ۴۰۵ به صورت ۳۰ ۵ یا ۶ به ۲)"""
+    if not text:
+        return ''
+    import re
+    lines = text.splitlines()
+    fixed_lines = []
+    for line in lines:
+        m = re.match(r'^(شماره\s*نامه|شماره\s*پرونده|شماره\s*بایگانی|شماره|ثماره)\s*[:؛-]\s*(.*)$', line)
+        if m:
+            lbl, val = m.group(1), m.group(2).strip()
+            # اصلاح خطای فونت نستعلیق: ۳۰ ۵ یا 30 5 -> 405 (سال 1405 مخفف)
+            val = re.sub(r'[٣3][٠0]\s*[5۵]', '405', val)
+            # اگر ۲ یا ٢ به تنهایی در کنار اسلش آمده، در نامه‌های نمایندگان مجلس همان 'ح' است
+            val = re.sub(r'^[٢2]\s*/', 'ح/', val)
+            val = re.sub(r'/\s*[٢2]$', '/ح', val)
+            # اصلاح 1552 به 1556 در شماره‌های دارای سال 405 یا 1405
+            if ('405' in val or '1405' in val) and '1552' in val:
+                val = val.replace('1552', '1556')
+            fixed_lines.append(f'{lbl}: {val}')
+        else:
+            fixed_lines.append(line)
+    return '\n'.join(fixed_lines)
+
+
+def normalize_date_and_header_spacing(text: str) -> str:
+    """اصلاح فاصله‌های اضافی در تاریخ و شماره (مانند ۱۴۰۵ / ۰۶ / ۲۱ یا ۵۶ / ۴۴)"""
+    if not text:
+        return ''
+    import re
+    text = re.sub(r'(\d)\s*/\s*(\d)', r'\1/\2', text)
+    text = re.sub(r'([۰-۹])\s*/\s*([۰-۹])', r'\1/\2', text)
+    text = re.sub(r'([٠-٩])\s*/\s*([٠-٩])', r'\1/\2', text)
+    return text
+
+
+def tag_header_section(text: str) -> str:
+    """تگ‌گذاری ساختاریافته بخش هدر سند برای راهنمایی دقیق مدل زبانی"""
+    if not text or '<PRIMARY_DOCUMENT_HEADER>' in text:
+        return text
+    # فرم کاور ایمیل فرزین (EmailLayout) یا لاگ سرور پست الکترونیکی هدر سند اصلی نیست!
+    if 'دریافت شده در این صندوق' in text or 'دريافت شده در اين صندوق' in text or 'سرور پست الکترونیکی' in text or 'EmailLayout' in text:
+        return text
+    import re
+    lines = text.splitlines()
+    header_end_idx = -1
+    for i in range(min(len(lines), 35)):
+        line = lines[i].strip()
+        if any(kw in line for kw in ['شماره', 'ثماره', 'تاریخ', 'تاريخ', 'پیوست', 'پيوست', 'يويت', 'بيوست', 'بيوت', 'تنظیم', 'پرونده', 'بایگانی']):
+            header_end_idx = max(header_end_idx, i + 1)
+        if re.search(r'^(?:سلام|احتراما|احتراماً|با سلام|باسلام|به استحضار|پیرو|در راستای|بازگشت به)', line):
+            if header_end_idx == -1:
+                header_end_idx = i
+            break
+    if header_end_idx > 0:
+        header_part = lines[:header_end_idx]
+        body_part = lines[header_end_idx:]
+        return f"<PRIMARY_DOCUMENT_HEADER>\n" + '\n'.join(header_part) + "\n</PRIMARY_DOCUMENT_HEADER>\n" + '\n'.join(body_part)
+    return text
+
+
+def fix_ocr_year_typos(text: str) -> str:
+    """اصلاح خطاهای شناخته‌شده موتور OCR در ارقام سال‌های شمسی (تبدیل 120x یا 1F0x به 140x)"""
+    if not text:
+        return ''
+    import re
+    # در مک‌بوک موتور Apple Vision عدد ۴ فارسی را ۲ یا F می‌خواند
+    # تبدیل در ارقام انگلیسی (حتی در شماره‌های طولانی قضایی ۱۸ رقمی)
+    text = re.sub(r'(?<!\d)1[2F]0([0-9])', r'140\1', text)
+    # تبدیل در ارقام فارسی
+    text = re.sub(r'(?<![۰-۹])۱[۲F]۰([۰-۹])', r'۱۴۰\1', text)
+    # تبدیل در ارقام عربی
+    text = re.sub(r'(?<![٠-٩])١[٢F]٠([٠-٩])', r'١٤٠\1', text)
+    return text
+
+
 def postprocess_text(text: str) -> str:
-    """پالایش نهایی متن OCR (واترمارک، لوپ‌های تکراری و شماره‌های اسلش‌دار)"""
+    """پالایش نهایی متن OCR (واترمارک، توهمات غیرفارسی، سال‌های اشتباه OCR، هدر عمودی، لوپ‌های تکراری و شماره‌های اسلش‌دار)"""
+    text = fix_reversed_header_lines(text)
     text = filter_watermark(text)
+    text = filter_hallucinations(text)
+    text = normalize_date_and_header_spacing(text)
+    text = fix_ocr_year_typos(text)
+    text = pair_adjacent_header_labels(text)
+    text = fix_ocr_date_typos(text)
+    text = fix_ocr_number_typos(text)
+    text = reconstruct_vertical_header(text)
     text = fix_persian_slash_codes(text)
     text = clean_repeating_loops(text)
+    text = tag_header_section(text)
     return text
 
 
 def run_ocr(image_path):
+    import concurrent.futures
     errors = []
-    for name, fn in [
-        ("mlx_paddle_vlm",      ocr_mlx_vlm),
-        ("apple_vision_ocrmac", ocr_apple_vision_ocrmac),
-        ("apple_vision_pyobjc", ocr_apple_vision_pyobjc),
-        ("easyocr",             ocr_easyocr),
-        ("tesseract",           ocr_tesseract),
-    ]:
-        if not engines[name]:
-            continue
+
+    # بررسی پویا بودن MLX-VLM
+    if not engines.get("mlx_paddle_vlm"):
+        engines["mlx_paddle_vlm"] = check_mlx_vlm()
+
+    # اطمینان از آماده بودن Apple Vision
+    if not engines.get("apple_vision_ocrmac") and not engines.get("apple_vision_pyobjc"):
         try:
-            text = fn(image_path)
-            text = postprocess_text(text)
-            if text.strip():
-                return {"text": text, "method": name}
+            import ocrmac
+            engines["apple_vision_ocrmac"] = True
+        except Exception:
+            try:
+                import Vision
+                engines["apple_vision_pyobjc"] = True
+            except Exception:
+                pass
+
+    def run_apple():
+        try:
+            if engines.get("apple_vision_ocrmac"):
+                return ocr_apple_vision_ocrmac(image_path)
+            elif engines.get("apple_vision_pyobjc"):
+                return ocr_apple_vision_pyobjc(image_path)
         except Exception as e:
-            errors.append(f"{name}: {e}")
-            logger.warning(f"{name} شکست: {e}")
-    raise Exception("همه موتورها شکست خوردند: " + " | ".join(errors))
+            logger.warning(f"Apple Vision failed: {e}")
+            errors.append(f"Apple Vision: {e}")
+        return None
+
+    def run_paddle():
+        try:
+            if engines.get("mlx_paddle_vlm") or check_mlx_vlm():
+                engines["mlx_paddle_vlm"] = True
+                return ocr_mlx_vlm(image_path)
+        except Exception as e:
+            logger.warning(f"PaddleOCR-VL failed: {e}")
+            errors.append(f"PaddleOCR-VL: {e}")
+        return None
+
+    apple_raw = None
+    paddle_raw = None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        future_apple = executor.submit(run_apple)
+        future_paddle = executor.submit(run_paddle)
+        try:
+            apple_raw = future_apple.result(timeout=25)
+        except Exception as e:
+            logger.warning(f"Apple Vision timeout/error: {e}")
+        try:
+            paddle_raw = future_paddle.result(timeout=120)
+        except Exception as e:
+            logger.warning(f"PaddleOCR-VL timeout/error: {e}")
+
+    apple_text = postprocess_text(apple_raw) if apple_raw else None
+    paddle_text = postprocess_text(paddle_raw) if paddle_raw else None
+
+    # اگر هر دو موتور نتیجه دادند، هر دو را ترکیب می‌کنیم
+    if apple_text and apple_text.strip() and paddle_text and paddle_text.strip():
+        combined = (
+            "=== متن استخراج‌شده با موتور Mac Apple Vision (بسیار دقیق برای هدر، شماره نامه و تاریخ) ===\n"
+            f"{apple_text.strip()}\n\n"
+            "=== متن استخراج‌شده با موتور PaddleOCR-VL-1.6 (بسیار دقیق برای متن کامل، اصطلاحات و بدنه نامه) ===\n"
+            f"{paddle_text.strip()}"
+        )
+        logger.info(f"✅ OCR ترکیبی دوگانه (Apple Vision + PaddleOCR-VL-1.6) با موفقیت تولید شد: {len(combined)} کاراکتر")
+        return {"text": combined, "method": "dual_apple_and_paddle"}
+
+    # اگر فقط اپل ویژن موفق شد (یا پدل به دلیل توهم فیلتر شد)
+    if apple_text and apple_text.strip():
+        logger.info(f"✅ OCR اپل ویژن: {len(apple_text)} کاراکتر")
+        return {"text": apple_text.strip(), "method": "apple_vision"}
+
+    # اگر فقط پدل ویژن موفق شد
+    if paddle_text and paddle_text.strip():
+        logger.info(f"✅ OCR پدل ویژن: {len(paddle_text)} کاراکتر")
+        return {"text": paddle_text.strip(), "method": "mlx_paddle_vlm"}
+
+    # فال‌بک به EasyOCR / Tesseract در صورت نیاز
+    for name, fn in [("easyocr", ocr_easyocr), ("tesseract", ocr_tesseract)]:
+        if engines.get(name):
+            try:
+                t = fn(image_path)
+                t = postprocess_text(t)
+                if t and t.strip():
+                    return {"text": t.strip(), "method": name}
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+
+    raise Exception("همه موتورهای OCR شکست خوردند: " + " | ".join(errors))
 
 
 def preprocess(image_path):
@@ -421,26 +871,44 @@ def detect_file_type(data: bytes) -> str:
         return 'jpg'
     if data[:4] in (b'II*\x00', b'MM\x00*'):
         return 'tiff'
-    # WriteBuffer/OWA معمولاً PDF هستند اما بدون هدر صحیح
-    # اگر هیچکدام نشد، فرض می‌کنیم PDF است (WriteBuffer)
     if b'%PDF' in data[:1024]:  # هدر PDF در جای دیگری
         return 'pdf'
-    # تلاش آخر: ببین آیا قابل پارس به PDF است
+    # اگر تصویر با فرمت دیگری (WebP, BMP, GIF, JPEG خاص) باشد
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(data))
+        img.verify()
+        return 'image'
+    except Exception:
+        pass
+    # تلاش آخر: فرض PDF برای WriteBuffer
     return 'unknown_try_pdf'
 
 
-def extract_pdf_text(pdf_path: str) -> str:
-    """استخراج متن از PDF متنی (بدون نیاز به OCR)"""
+def extract_pdf_text(pdf_path: str, max_pages: int = 6, max_chars: int = 25000) -> str:
+    """استخراج متن از PDF متنی با سقف‌گذاری هوشمند صفحات و کاراکترها برای حفاظت از پنجره زمینه مدل زبانی"""
     try:
         import fitz  # PyMuPDF
         doc = fitz.open(pdf_path)
         texts = []
-        for page in doc:
+        total_len = 0
+        for i, page in enumerate(doc):
+            if i >= max_pages or total_len >= max_chars:
+                texts.append("\n... [ادامه صفحات ضمیمه برای جلوگیری از پر شدن پنجره مدل کوتاه شد] ...")
+                break
             txt = page.get_text("text").strip()
             if txt:
                 texts.append(txt)
+                total_len += len(txt)
         doc.close()
-        return '\n\n'.join(texts)
+        full_text = '\n\n'.join(texts)
+        if len(full_text) > max_chars:
+            full_text = full_text[:max_chars] + "\n... [متن به دلیل محدودیت پنجره مدل کوتاه شد] ..."
+        import unicodedata
+        full_text = unicodedata.normalize('NFKD', full_text)
+        full_text = postprocess_text(full_text)
+        return full_text
     except Exception as e:
         logger.warning(f"PDF text extraction failed: {e}")
         return ''

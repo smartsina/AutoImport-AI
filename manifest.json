@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AutoImport AI - ثبت هوشمند نامه وارده",
   "short_name": "AutoImport AI",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "ثبت خودکار نامه‌های وارده با هوش مصنوعی - اداره کل آموزش و پرورش فارس",
   "author": "محمد رضا حسنی پور",
   "permissions": [
@@ -41,11 +41,16 @@
     "http://auto4.farsedu.ir/*",
     "https://auto4.farsedu.ir/*",
     "https://dolat.auto.farsedu.ir/*",
+    "https://dolatauto.farsedu.ir/*",
     "http://127.0.0.1:*/*",
     "http://localhost:*/*",
+    "http://192.168.*:*/*",
+    "http://10.*:*/*",
+    "http://172.16.*:*/*",
     "https://*.arvancloudai.ir/*",
     "https://*.arvancloud.ir/*",
-    "https://*.arvancloud.com/*"
+    "https://*.arvancloud.com/*",
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
@@ -64,7 +69,8 @@
         "http://auto4.farsedu.ir/*",
         "https://auto4.farsedu.ir/*",
         "http://dolat.auto.farsedu.ir/*",
-        "https://dolat.auto.farsedu.ir/*"
+        "https://dolat.auto.farsedu.ir/*",
+        "https://dolatauto.farsedu.ir/*"
       ],
       "js": [
         "content.js"
