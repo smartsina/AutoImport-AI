@@ -304,23 +304,17 @@ def fix_persian_slash_codes(text: str) -> str:
         if len(parts) == 3 and (first.startswith('14') or first.startswith('13')) and len(first) == 4:
             return norm
 
-        # اگر بخش آخر سال شمسی صحیح است (مثلاً 3029/1/75/9/پ/1405)
-        if re.match(r'^\d{4}$', last) and (last.startswith('14') or last.startswith('13')):
+        # اگر بخش اول سال شمسی است (مانند 1405/18815/44/56/ص) - ترتیب استاندارد اداری است و نباید معکوس شود
+        if (first.startswith('14') or first.startswith('13')) and len(first) == 4:
             return norm
 
-        is_reversed = False
+        # اگر بخش آخر سال شمسی است (مانند 56/44/18815/1405) - کل اجزا معکوس می‌شوند تا سال در ابتدای شماره قرار گیرد
+        if re.match(r'^\d{4}$', last) and (last.startswith('14') or last.startswith('13')):
+            rev_parts = parts[::-1]
+            return '/'.join(rev_parts)
 
         # اگر بخش اول سال معکوس است (مثلاً 5041 معکوس 1405 است)
         if re.match(r'^\d{4}$', first) and (first.endswith('41') or first.endswith('31')):
-            is_reversed = True
-        elif re.match(r'^\d{4}$', first) and (first.startswith('14') or first.startswith('13')):
-            # بخش اول سال است اما بخش آخر سال نیست (ترتیب LTR شده)
-            rev_parts = parts[::-1]
-            return '/'.join(rev_parts)
-        elif not (last.startswith('14') or last.startswith('13')) and (first[::-1].startswith('14') or first[::-1].startswith('13')):
-            is_reversed = True
-
-        if is_reversed:
             rev_parts = parts[::-1]
             fixed = []
             for p in rev_parts:
@@ -553,11 +547,42 @@ def fix_reversed_header_lines(text: str) -> str:
 
     lines = text.splitlines()
     out = []
-    for line in lines:
-        raw_l = line.strip()
+    skip_next = False
+    for i in range(len(lines)):
+        if skip_next:
+            skip_next = False
+            continue
+        raw_l = lines[i].strip()
         en_l = to_en(raw_l)
 
-        # ۱. شماره نامه معکوس (مانند 0663/5041/ف ا یا 5041/0663/ف ا)
+        # ۱. تاریخ دارای روز معکوس (مانند تاریخ: 1405/06/32 که ارقام ۲۳ معکوس شده است)
+        m_dt_rev = re.search(r'((?:تاریخ|تاريخ|تنظیم)\s*[:؛-]?\s*140[0-9]/(?:0?[1-9]|1[0-2])/)(3[2-9]|[4-9]\d)\b', en_l)
+        if m_dt_rev:
+            bad_d = m_dt_rev.group(2)
+            rev_d = bad_d[::-1]
+            if 1 <= int(rev_d) <= 31:
+                fixed_dt = en_l.replace(m_dt_rev.group(0), f"{m_dt_rev.group(1)}{rev_d}")
+                out.append(fixed_dt)
+                continue
+
+        # ۲. کدهای اداری اسلش‌دار معکوس (مانند 56/44/18815/1405 یا 56/44/18815/1405/ص)
+        # که سال 140x یا 40x در انتهای آن قرار گرفته است
+        m_slash = re.match(r'^([a-zA-Z0-9\u0600-\u06FF]{1,8}(?:/[a-zA-Z0-9\u0600-\u06FF]{1,8}){2,5})$', en_l)
+        if m_slash:
+            parts = m_slash.group(1).split('/')
+            if parts[-1].startswith('140') or parts[-1].startswith('40'):
+                parts.reverse()
+                suf = ''
+                if out and re.match(r'^[صاحالف]$', out[-1].strip()):
+                    suf = out.pop().strip()
+                elif i + 1 < len(lines) and re.match(r'^[صاحالف]$', lines[i+1].strip()):
+                    suf = lines[i+1].strip()
+                    skip_next = True
+                fixed_no = '/'.join(parts) + (f'/{suf}' if suf else '')
+                out.append(f'شماره: {fixed_no}')
+                continue
+
+        # ۳. شماره نامه معکوس (مانند 0663/5041/ف ا یا 5041/0663/ف ا)
         m_no = re.match(r'^(\d{2,7})[/\\](50[345]1)[/\\]([a-zA-Z\u0600-\u06FF\s]+)$', en_l)
         if m_no:
             ser = m_no.group(1)[::-1]
@@ -574,7 +599,7 @@ def fix_reversed_header_lines(text: str) -> str:
             out.append(f'شماره: {yr}/{ser}/{suf}')
             continue
 
-        # ۲. تاریخ معکوس (مانند 12/60/5041)
+        # ۴. تاریخ معکوس (مانند 12/60/5041)
         m_dt = re.match(r'^(\d{1,2})[/\\](0[1-9]|60)[/\\](50[345]1)$', en_l)
         if m_dt:
             d = m_dt.group(1)
@@ -585,13 +610,13 @@ def fix_reversed_header_lines(text: str) -> str:
             out.append(f'تاریخ: {yr}/{m}/{d}')
             continue
 
-        # ۳. پیوست مجزا در بالای نامه: دارد یا ندارد
+        # ۵. پیوست مجزا در بالای نامه: دارد یا ندارد
         if raw_l in ('دارد', 'ندارد', 'ﺩﺍﺭﺩ', 'ﻧﺪﺍﺭﺩ'):
             clean_val = 'دارد' if 'دار' in raw_l else 'ندارد'
             out.append(f'پیوست: {clean_val}')
             continue
 
-        out.append(line)
+        out.append(raw_l)
 
     return '\n'.join(out)
 
@@ -663,12 +688,13 @@ def tag_header_section(text: str) -> str:
     header_end_idx = -1
     for i in range(min(len(lines), 35)):
         line = lines[i].strip()
-        if any(kw in line for kw in ['شماره', 'ثماره', 'تاریخ', 'تاريخ', 'پیوست', 'پيوست', 'يويت', 'بيوست', 'بيوت', 'تنظیم', 'پرونده', 'بایگانی']):
-            header_end_idx = max(header_end_idx, i + 1)
-        if re.search(r'^(?:سلام|احتراما|احتراماً|با سلام|باسلام|به استحضار|پیرو|در راستای|بازگشت به)', line):
-            if header_end_idx == -1:
-                header_end_idx = i
+        # توقف حتمی قبل از سلام، گیرنده، یا متن اصلی نامه
+        if re.search(r'^(?:سلام|با سلام|باسلام|با سالم|احتراما|احتراماً|به استحضار|به پیوست|عطف به|پیرو|بازگشت به|در راستای|مدیران|مدیر محترم|ریاست محترم|جناب آقای|سرکار خانم)', line):
+            header_end_idx = i
             break
+        if any(kw in line for kw in ['شماره', 'ثماره', 'تاریخ', 'تاريخ', 'پیوست', 'پيوست', 'يويت', 'بيوست', 'بيوت', 'تنظیم']):
+            header_end_idx = max(header_end_idx, i + 1)
+
     if header_end_idx > 0:
         header_part = lines[:header_end_idx]
         body_part = lines[header_end_idx:]

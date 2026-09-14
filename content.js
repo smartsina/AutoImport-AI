@@ -1330,8 +1330,10 @@ async function extractAndAnalyzeFiles(letterData) {
                     const isPrimary = validFiles[i].isPrimary || (i === 0);
 
                     if (isPrimary) {
-                        combinedText += `\n\n=== سند اصلی و نامه جاری [${validFiles[i].label}] ===\n<PRIMARY_DOCUMENT_HEADER>\n${rawFileText}\n</PRIMARY_DOCUMENT_HEADER>`;
-                        aiPromptText += `\n\n=== سند اصلی و نامه جاری [${validFiles[i].label}] (شماره نامه و تاریخ الزماً از این سند استخراج شود) ===\n<PRIMARY_DOCUMENT_HEADER>\n${rawFileText}\n</PRIMARY_DOCUMENT_HEADER>`;
+                        const hasHeader = rawFileText.includes('<PRIMARY_DOCUMENT_HEADER>');
+                        const filePrompt = hasHeader ? rawFileText : `<PRIMARY_DOCUMENT_HEADER>\n${rawFileText.substring(0, 1500)}\n</PRIMARY_DOCUMENT_HEADER>\n${rawFileText.substring(1500)}`;
+                        combinedText += `\n\n=== سند اصلی و نامه جاری [${validFiles[i].label}] ===\n${rawFileText}`;
+                        aiPromptText += `\n\n=== سند اصلی و نامه جاری [${validFiles[i].label}] (شماره نامه و تاریخ الزماً از این سند استخراج شود) ===\n${filePrompt}`;
                     } else {
                         combinedText += `\n\n=== پیوست ثانویه [${validFiles[i].label}] ===\n${rawFileText}`;
                         let boundedText = rawFileText;

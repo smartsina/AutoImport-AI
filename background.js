@@ -1179,6 +1179,16 @@ function ensureValidPastOrPresentDate(dt, curJalali = getCurrentJalaliDate()) {
 
     if (isNaN(y) || isNaN(m) || isNaN(d)) return dt;
 
+    // اصلاح خطای وارونگی ارقام روز در OCR (مانند 32 که معکوس 23 است)
+    if (d > 31 && rawD.length === 2) {
+        const revD = parseInt(rawD.split('').reverse().join(''), 10);
+        if (revD >= 1 && revD <= 31) {
+            logger.info(`🔄 اصلاح وارونگی ارقام روز OCR: ${d} -> ${revD}`);
+            d = revD;
+            rawD = String(revD);
+        }
+    }
+
     let shortY = y >= 1000 ? (y % 100) : y;
     const curFullY = parseInt(curJalali.fullYear || '1405', 10);
     const curShortY = curFullY % 100;
@@ -1418,17 +1428,27 @@ function extractHeaderOriginNo(rawText) {
     const lines = (headerSection ? headerSection.split('\n') : enRaw.split('\n'))
         .map(l => l.trim()).filter(Boolean);
 
-    // ۱. اولویت ۱: خط دارای برچسب صریح "شماره نامه" یا "شماره صادره" یا "شماره وارده" یا "شماره مدرک" یا "شماره:"
-    for (let i = 0; i < Math.min(lines.length, 35); i++) {
+    // ۱. اولویت ۱: کدهای اداری اسلش‌دار حاوی سال شمسی 140x یا 40x در هدر (مانند 1405/18815/44/56/ص یا 56/44/18815/1405)
+    for (let i = 0; i < Math.min(lines.length, 30); i++) {
         const line = lines[i];
-        if (line.includes('پرونده') || line.includes('بایگانی') || line.includes('پلاک') || line.includes('کلاسه')) continue;
-        const match = line.match(/(?:شماره\s*نامه|شماره\s*صادره|شماره\s*وارده|شماره\s*مدرک|letter\s*no\.?|شماره|ثماره|no\.?)\s*[:؛-]?\s*([^\n\r]+)/i);
-        if (match) {
-            let cand = match[1].trim();
-            if (cand && !cand.startsWith('شماره') && isValidOriginNoCandidate(cand)) {
-                const norm = normalizeLetterNumber(cand);
-                if (norm && isValidOriginNoCandidate(norm)) return norm;
+        if (isDateString(line) || line.includes('تاريخ') || line.includes('تاریخ') || line.includes('پرونده') || line.includes('بایگانی')) continue;
+        if (line.includes('تصویر نامه') || line.includes('پیوست تصویر') || line.includes('عطف به') || line.includes('پیرو') || line.includes('بازگشت به')) continue;
+        const codeMatch = line.match(/\b((?:140[0-9]|40[0-9]|[a-zA-Z\u0600-\u06FF0-9]{1,10})(?:[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10}){2,6})\b/) ||
+                          line.match(/\b([a-zA-Z\u0600-\u06FF0-9]{1,6}[\/\-](?:140[0-9]|40[0-9])[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10})\b/) ||
+                          line.match(/\b((?:140[0-9]|40[0-9])[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10}[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,6})\b/);
+        if (codeMatch) {
+            let norm = normalizeLetterNumber(codeMatch[1]);
+            // بررسی خط قبلی یا بعدی برای پسوند تک‌حرفی مانند 'ص'، 'الف'، 'ح'
+            let adjacentSuffix = '';
+            if (i > 0 && /^[صاحالف]$/.test(lines[i - 1].trim())) {
+                adjacentSuffix = lines[i - 1].trim();
+            } else if (i + 1 < lines.length && /^[صاحالف]$/.test(lines[i + 1].trim())) {
+                adjacentSuffix = lines[i + 1].trim();
             }
+            if (adjacentSuffix && !norm.endsWith(adjacentSuffix)) {
+                norm += '/' + adjacentSuffix;
+            }
+            if (norm && isValidOriginNoCandidate(norm)) return norm;
         }
     }
 
@@ -1443,20 +1463,23 @@ function extractHeaderOriginNo(rawText) {
         }
     }
 
-    // ۳. کدهای اداری اسلش‌دار حاوی 140x یا 40x در هدر (شامل کدهای اداری چندبخشی و دارای پسوند مانند 1405/18814/44/56/ص)
-    for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    // ۳. خط دارای برچسب صریح "شماره نامه" یا "شماره:" (به استثنای نامه‌های پیوست و عطف در متن نامه)
+    for (let i = 0; i < Math.min(lines.length, 35); i++) {
         const line = lines[i];
-        if (isDateString(line) || line.includes('تاريخ') || line.includes('تاریخ') || line.includes('پرونده') || line.includes('بایگانی')) continue;
-        const codeMatch = line.match(/\b((?:140[0-9]|40[0-9]|[a-zA-Z\u0600-\u06FF0-9]{1,10})(?:[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10}){2,6})\b/) ||
-                          line.match(/\b([a-zA-Z\u0600-\u06FF0-9]{1,6}[\/\-](?:140[0-9]|40[0-9])[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10})\b/) ||
-                          line.match(/\b((?:140[0-9]|40[0-9])[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10}[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,6})\b/);
-        if (codeMatch) {
-            const norm = normalizeLetterNumber(codeMatch[1]);
-            if (norm && isValidOriginNoCandidate(norm)) return norm;
+        if (line.includes('پرونده') || line.includes('بایگانی') || line.includes('پلاک') || line.includes('کلاسه')) continue;
+        if (line.includes('تصویر نامه') || line.includes('پیوست تصویر') || line.includes('عطف به') || line.includes('پیرو') || line.includes('بازگشت به') || line.includes('منضم')) continue;
+        if (i > 0 && (lines[i - 1].includes('پیوست تصویر') || lines[i - 1].includes('تصویر نامه') || lines[i - 1].includes('عطف به') || lines[i - 1].includes('پیرو نامه') || lines[i - 1].includes('بازگشت به'))) continue;
+        const match = line.match(/(?:شماره\s*نامه|شماره\s*صادره|شماره\s*وارده|شماره\s*مدرک|letter\s*no\.?|شماره|ثماره|no\.?)\s*[:؛-]?\s*([^\n\r]+)/i);
+        if (match) {
+            let cand = match[1].trim();
+            if (cand && !cand.startsWith('شماره') && isValidOriginNoCandidate(cand)) {
+                const norm = normalizeLetterNumber(cand);
+                if (norm && isValidOriginNoCandidate(norm)) return norm;
+            }
         }
     }
 
-    // ۵. شماره‌های معکوس مانند 0663/5041/ف ا یا 5041/0663/ف ا در خطوط ابتدایی متن
+    // ۴. شماره‌های معکوس مانند 0663/5041/ف ا یا 5041/0663/ف ا در خطوط ابتدایی متن
     for (let i = 0; i < Math.min(lines.length, 25); i++) {
         const line = lines[i];
         if (isDateString(line) || line.includes('تاريخ') || line.includes('تاریخ')) continue;
@@ -1653,9 +1676,9 @@ function extractDateFromText(rawText) {
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             if (line.includes('تاريخ') || line.includes('تاریخ') || line.toLowerCase().includes('date')) {
-                const m = line.match(/(?:1[234]0\d)\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(?:[12]\d|3[01]|0?[1-9])\b/) ||
-                          line.match(/(?:[12]\d|3[01]|0?[1-9])\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(?:1[234]0\d)\b/) ||
-                          line.match(/(?:1[234]0\d|\d{2})\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(?:0?[1-9]|[12]\d|3[01])/);
+                const m = line.match(/(?:1[234]0\d)\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(\d{1,2})\b/) ||
+                          line.match(/(\d{1,2})\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(?:1[234]0\d)\b/) ||
+                          line.match(/(?:1[234]0\d|\d{2})\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(\d{1,2})\b/);
                 if (m) {
                     const parsed = parseDateCandidate(m[0]);
                     if (parsed) return parsed;
@@ -1665,8 +1688,8 @@ function extractDateFromText(rawText) {
                 for (let j = 1; j <= 5; j++) {
                     if (i + j < lines.length) {
                         const nextLine = lines[i + j];
-                        const nextM = nextLine.match(/^(?:1[234]0\d)\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(?:0?[1-9]|[12]\d|3[01])$/) ||
-                                      nextLine.match(/^(?:0?[1-9]|[12]\d|3[01])\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(?:1[234]0\d)$/);
+                        const nextM = nextLine.match(/^(?:1[234]0\d)\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(\d{1,2})$/) ||
+                                      nextLine.match(/^(\d{1,2})\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(?:1[234]0\d)$/);
                         if (nextM) {
                             const parsed = parseDateCandidate(nextM[0]);
                             if (parsed) return parsed;
@@ -1679,8 +1702,8 @@ function extractDateFromText(rawText) {
         // ب) تاریخ شمسی ۴ رقمی مستقل در خطوط هدر
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
-            const m = line.match(/\b(1[234]0\d)\s*[\/\-\.]\s*(0?[1-9]|1[0-2])\s*[\/\-\.]\s*([12]\d|3[01]|0?[1-9])\b/) ||
-                      line.match(/\b([12]\d|3[01]|0?[1-9])\s*[\/\-\.]\s*(0?[1-9]|1[0-2])\s*[\/\-\.]\s*(1[234]0\d)\b/);
+            const m = line.match(/\b(1[234]0\d)\s*[\/\-\.]\s*(0?[1-9]|1[0-2])\s*[\/\-\.]\s*(\d{1,2})\b/) ||
+                      line.match(/\b(\d{1,2})\s*[\/\-\.]\s*(0?[1-9]|1[0-2])\s*[\/\-\.]\s*(1[234]0\d)\b/);
             if (m) {
                 const parsed = parseDateCandidate(m[0]);
                 if (parsed) return parsed;
@@ -1698,24 +1721,24 @@ function extractDateFromText(rawText) {
                 return { day: d, month: m, year: y };
             }
         }
+
         return null;
     };
 
-    // اولویت ۱: جستجو در تگ اختصاصی هدر
+    // اولویت ۱: جستجو در بخش هدر مشخص‌شده
     if (headerText) {
-        const hLines = headerText.split('\n').map(l => l.trim()).filter(Boolean);
-        const res = searchLinesForDate(hLines);
+        const lines = headerText.split('\n').map(l => l.trim()).filter(Boolean);
+        const res = searchLinesForDate(lines);
         if (res) return res;
     }
 
-    // اولویت ۲: جستجو در ۳۵ خط اول متن کل
+    // اولویت ۲: جستجو در کل متن
     const allLines = enText.split('\n').map(l => l.trim()).filter(Boolean);
-    const topLines = allLines.slice(0, 35);
-    const res = searchLinesForDate(topLines);
-    if (res) return res;
+    const resAll = searchLinesForDate(allLines);
+    if (resAll) return resAll;
 
     // اولویت ۳: الگوی مورخ در کل متن
-    const movarekhMatch = enText.match(/مورخ\s*[:؛-]?\s*(1[234]0\d)\s*[\/\-\.]\s*(0?[1-9]|1[0-2])\s*[\/\-\.]\s*(0?[1-9]|[12]\d|3[01])/);
+    const movarekhMatch = enText.match(/مورخ\s*[:؛-]?\s*(1[234]0\d)\s*[\/\-\.]\s*(0?[1-9]|1[0-2])\s*[\/\-\.]\s*(\d{1,2})/);
     if (movarekhMatch) {
         const parsed = parseDateCandidate(movarekhMatch[0].replace(/مورخ\s*[:؛-]?\s*/, ''));
         if (parsed) return parsed;
@@ -1747,6 +1770,14 @@ function parseDateCandidate(str) {
         numY = (numY + 200) % 100;
     } else if (numY >= 1300) {
         numY = numY % 100;
+    }
+
+    // اصلاح خطای وارونگی ارقام روز در OCR (مانند 32 که معکوس 23 است)
+    if (numD > 31 && String(d).length === 2) {
+        const revD = parseInt(String(d).split('').reverse().join(''), 10);
+        if (revD >= 1 && revD <= 31) {
+            numD = revD;
+        }
     }
 
     // اصلاح جابجایی سال و روز: در حال حاضر سال‌های شمسی 00 تا 09 هستند و روزها تا 31
