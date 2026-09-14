@@ -4,11 +4,8 @@ MLX_PYTHON="$HOME/.mlx_venv/bin/python3"
 MLX_SERVER="$HOME/.mlx_venv/bin/mlx_vlm.server"
 LMS_CLI="$HOME/.lmstudio/bin/lms"
 OCR_PORT=5151
-PYTHON_BIN="/Library/Frameworks/Python.framework/Versions/3.14/bin/python3"
-
-if [ ! -f "$PYTHON_BIN" ]; then
-    PYTHON_BIN="python3"
-fi
+ARCH_BIN="/usr/bin/arch"
+SYS_PY="/Library/Frameworks/Python.framework/Versions/3.14/bin/python3"
 
 # ۱. اعلان شروع به کاربر
 osascript -e 'display notification "در حال راه‌اندازی سرور OCR و ملزومات هوش مصنوعی..." with title "AutoImport AI"'
@@ -31,16 +28,25 @@ if [[ -z "$LMS_RUNNING" ]]; then
     fi
 fi
 
-# ۴. راه‌اندازی سرور OCR محلی روی پورت 5151
+# ۴. تشخیص پایتون بومی ARM64 جهت بارگذاری بدون خطای کتابخانه‌های بومی (PyMuPDF, PIL, ocrmac)
+if $ARCH_BIN -arm64 "$SYS_PY" -c "import fitz, PIL, ocrmac" >/dev/null 2>&1; then
+    PYTHON_CMD="$ARCH_BIN -arm64 $SYS_PY"
+elif [ -x "$MLX_PYTHON" ]; then
+    PYTHON_CMD="$MLX_PYTHON"
+else
+    PYTHON_CMD="$ARCH_BIN -arm64 python3"
+fi
+
+# ۵. راه‌اندازی سرور OCR محلی روی پورت 5151
 if ! curl -s http://127.0.0.1:$OCR_PORT/health >/dev/null 2>&1 && ! curl -s http://127.0.0.1:$OCR_PORT/status >/dev/null 2>&1; then
     docker stop vv_ocr 2>/dev/null || true
     lsof -ti:$OCR_PORT | xargs kill -9 2>/dev/null || true
     sleep 0.5
     cd "$PROJECT_DIR"
-    nohup "$PYTHON_BIN" "$PROJECT_DIR/local_ocr/server.py" > /tmp/autoimport_ocr.log 2>&1 &
+    nohup $PYTHON_CMD "$PROJECT_DIR/local_ocr/server.py" > /tmp/autoimport_ocr.log 2>&1 &
 fi
 
-# ۵. انتظار برای پاسخ‌دهی سرور OCR
+# ۶. انتظار برای پاسخ‌دهی سرور OCR
 READY=false
 for i in {1..25}; do
     if curl -s http://127.0.0.1:$OCR_PORT/health >/dev/null 2>&1 || curl -s http://127.0.0.1:$OCR_PORT/status >/dev/null 2>&1; then
@@ -50,7 +56,7 @@ for i in {1..25}; do
     sleep 0.5
 done
 
-# ۶. اعلان وضعیت نهایی
+# ۷. اعلان وضعیت نهایی
 if [ "$READY" = true ]; then
     osascript -e 'display notification "سرور OCR محلی و ملزومات هوش مصنوعی با موفقیت فعال شد! (پورت ۵۱۵۱)" with title "AutoImport AI"'
 else

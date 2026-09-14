@@ -49,4 +49,10 @@ echo "📍 آدرس سرور: http://127.0.0.1:5151"
 echo "💡 برای توقف سرور کلید CTRL+C را فشار دهید."
 echo "=========================================================="
 
-python3 "$SCRIPT_DIR/local_ocr/server.py"
+if /usr/bin/arch -arm64 /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 -c "import fitz, PIL, ocrmac" >/dev/null 2>&1; then
+    exec /usr/bin/arch -arm64 /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 "$SCRIPT_DIR/local_ocr/server.py"
+elif [ -x "$HOME/.mlx_venv/bin/python3" ]; then
+    exec "$HOME/.mlx_venv/bin/python3" "$SCRIPT_DIR/local_ocr/server.py"
+else
+    exec /usr/bin/arch -arm64 python3 "$SCRIPT_DIR/local_ocr/server.py"
+fi
