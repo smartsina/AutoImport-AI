@@ -513,81 +513,123 @@ async function handleOcrFileOnly(payload, sendResponse) {
 
 // ===== Handler: انتظار برای دانلود بومی و ارسال آدرس آن به سرور پایتون =====
 async function handleOcrNativeDownload(payload, sendResponse) {
-    if (!payload || !payload.startTime) {
-        sendResponse({ success: false, error: 'زمان شروع دانلود داده نشد' });
+    if (!payload) {
+        sendResponse({ success: false, error: 'اطلاعات درخواست داده نشد' });
         return;
     }
-    logger.info('⏳ Waiting for native download to complete...', new Date(payload.startTime).toISOString());
-    
-    // جستجوی دوره‌ای تا زمانی که دانلود تمام شود
-    const maxTries = 60; // حداکثر ۶۰ ثانیه
-    let tries = 0;
-    
-    const checkInterval = setInterval(async () => {
-        tries++;
-        try {
-            const dls = await chrome.downloads.search({ 
-                orderBy: ['-startTime'], 
-                limit: 10 
-            });
-            
-            // پیدا کردن جدیدترین دانلودی که بعد از startTime ما شروع شده
-            const targetDl = dls.find(d => new Date(d.startTime).getTime() >= payload.startTime - 2000);
-            
+
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    let targetDl = null;
+    let downloadId = null;
+
+    try {
+        if (payload.url) {
+            logger.info('⬇️ Direct native download via chrome.downloads:', payload.url.substring(0, 100));
+            try {
+                downloadId = await chrome.downloads.download({
+                    url: payload.url,
+                    conflictAction: 'uniquify'
+                });
+                logger.info(`📥 Download initiated with ID: ${downloadId}`);
+            } catch (dlErr) {
+                logger.warn('Direct chrome.downloads.download failed, fallback to searching:', dlErr.message);
+            }
+        }
+
+        const startTime = payload.startTime || Date.now();
+        logger.info('⏳ Waiting for native download to complete...', new Date(startTime).toISOString());
+
+        const maxTries = 60; // حداکثر ۶۰ ثانیه
+        let tries = 0;
+
+        while (tries < maxTries) {
+            await sleep(500);
+            tries++;
+
+            if (downloadId != null) {
+                const results = await chrome.downloads.search({ id: downloadId });
+                if (results && results.length > 0) {
+                    targetDl = results[0];
+                }
+            } else {
+                const dls = await chrome.downloads.search({
+                    orderBy: ['-startTime'],
+                    limit: 10
+                });
+                targetDl = dls.find(d => new Date(d.startTime).getTime() >= startTime - 2000);
+            }
+
             if (targetDl) {
                 if (targetDl.state === 'complete') {
-                    clearInterval(checkInterval);
-                    logger.info(`✅ Native download complete: ${targetDl.filename}`);
-                    
-                    // ارسال آدرس فایل محلی به سرور OCR پایتون
-                    const settings = await chrome.storage.local.get(['autoimport_ocr_server']);
-                    const baseUrl = (settings.autoimport_ocr_server || 'http://127.0.0.1:5151').replace(/\/+$/, '');
-                    const LOCAL_OCR_URL = `${baseUrl}/ocr`;
-                    try {
-                        const ocrCtrl = new AbortController();
-                        const ocrT = setTimeout(() => ocrCtrl.abort(), 120000);
-                        const res = await fetch(LOCAL_OCR_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ file_path: targetDl.filename }),
-                            signal: ocrCtrl.signal
-                        });
-                        clearTimeout(ocrT);
-                        const data = await res.json();
-                        if (data.success && data.text && data.text.trim().length > 3) {
-                            logger.info(`✅ Local path OCR موفق: ${data.text.length} کاراکتر`);
-                            sendResponse({ success: true, text: data.text });
-                            
-                            // حذف فایل دانلود شده
-                            try {
-                                await chrome.downloads.removeFile(targetDl.id);
-                                logger.info(`🗑️ Deleted downloaded file: ${targetDl.filename}`);
-                            } catch(e) {
-                                logger.warn('Failed to delete file:', e.message);
-                            }
-                        } else {
-                            sendResponse({ success: false, error: data.error || 'متنی یافت نشد' });
-                        }
-                    } catch (err) {
-                        logger.error('Local OCR via path failed:', err.message);
-                        sendResponse({ success: false, error: err.message });
-                    }
+                    break;
                 } else if (targetDl.state === 'interrupted') {
-                    clearInterval(checkInterval);
-                    logger.warn('❌ Native download interrupted');
-                    sendResponse({ success: false, error: 'دانلود لغو شد یا با خطا مواجه شد' });
+                    throw new Error('دانلود لغو شد یا با خطا مواجه شد');
                 }
-            } else if (tries >= maxTries) {
-                clearInterval(checkInterval);
-                logger.warn('❌ Native download timeout');
-                sendResponse({ success: false, error: 'دانلود در ۶۰ ثانیه پیدا/تکمیل نشد' });
             }
-        } catch(e) {
-            clearInterval(checkInterval);
-            logger.error('chrome.downloads error:', e);
-            sendResponse({ success: false, error: e.message });
         }
-    }, 1000);
+
+        if (!targetDl || targetDl.state !== 'complete') {
+            throw new Error('دانلود در ۶۰ ثانیه پیدا/تکمیل نشد');
+        }
+
+        logger.info(`✅ Native download complete: ${targetDl.filename}`);
+
+        // ارسال آدرس فایل محلی به سرور OCR پایتون با دستور حذف منبع
+        const settings = await chrome.storage.local.get(['autoimport_ocr_server']);
+        const baseUrl = (settings.autoimport_ocr_server || 'http://127.0.0.1:5151').replace(/\/+$/, '');
+        const LOCAL_OCR_URL = `${baseUrl}/ocr`;
+
+        const ocrCtrl = new AbortController();
+        const ocrT = setTimeout(() => ocrCtrl.abort(), 120000);
+        let resData = null;
+        try {
+            const res = await fetch(LOCAL_OCR_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    file_path: targetDl.filename,
+                    delete_source: true
+                }),
+                signal: ocrCtrl.signal
+            });
+            clearTimeout(ocrT);
+            resData = await res.json();
+        } catch (fetchErr) {
+            clearTimeout(ocrT);
+            throw new Error(`Local OCR fetch failed: ${fetchErr.message}`);
+        }
+
+        if (resData && resData.success && resData.text && resData.text.trim().length > 3) {
+            logger.info(`✅ Local path OCR موفق: ${resData.text.length} کاراکتر`);
+            sendResponse({ success: true, text: resData.text });
+        } else {
+            sendResponse({ success: false, error: (resData && resData.error) || 'متنی یافت نشد' });
+        }
+
+    } catch (err) {
+        logger.error('handleOcrNativeDownload error:', err.message);
+        sendResponse({ success: false, error: err.message });
+    } finally {
+        // حذف فیزیکی و پاکسازی ۱۰۰٪ تاریخچه دانلود برای جلوگیری از اشغال حافظه لپ‌تاپ
+        if (targetDl && targetDl.id) {
+            try {
+                await chrome.downloads.removeFile(targetDl.id);
+                logger.info(`🗑️ Deleted downloaded file: ${targetDl.filename}`);
+            } catch (e) {
+                logger.warn('Failed to delete file via removeFile:', e.message);
+            }
+            try {
+                await chrome.downloads.erase({ id: targetDl.id });
+                logger.info(`🧹 Erased download history for id: ${targetDl.id}`);
+            } catch (e) {
+                logger.warn('Failed to erase download entry:', e.message);
+            }
+        } else if (downloadId != null) {
+            try {
+                await chrome.downloads.erase({ id: downloadId });
+            } catch (e) { }
+        }
+    }
 }
 
 // ===== Handler: OCR با base64 که content.js دانلود کرده =====
@@ -1546,7 +1588,7 @@ function normalizeExtractedLetterData(parsed, rawText = '', baseData = {}) {
         originDate = parseDateCandidate(dStr);
     }
 
-    // اصلاح خطای OCR در خواندن ماه ۰۶ (شهریور) به ۰۲ (اردیبهشت)
+    // اصلاح خطای OCR در خواندن ماه ۰۶ (شهریور) به ۰۲ (اردیبهشت) یا ۰۹ (آذر به دلیل وارونگی ۶ و ۹)
     const currentJalali = getCurrentJalaliDate();
     const baseMonth = baseData?.originDate?.month ? parseInt(toEnglishDigits(String(baseData.originDate.month)), 10) : null;
     const sysMonth = parseInt(currentJalali.month, 10);
@@ -1554,8 +1596,8 @@ function normalizeExtractedLetterData(parsed, rawText = '', baseData = {}) {
     const fixMonthConfusion = (dt) => {
         if (!dt) return dt;
         const m = parseInt(dt.month, 10);
-        if (m === 2 && (baseMonth === 6 || sysMonth === 6)) {
-            logger.info(`🔄 اصلاح خطای OCR ماه: تغییر ماه 02 به 06 (شهریور) برای تاریخ ${dt.day}/${dt.month}/${dt.year}`);
+        if ((m === 2 || m === 9) && (baseMonth === 6 || sysMonth === 6)) {
+            logger.info(`🔄 اصلاح خطای OCR ماه: تغییر ماه 0${m} به 06 (شهریور) برای تاریخ ${dt.day}/${dt.month}/${dt.year}`);
             dt.month = '06';
         }
         return dt;

@@ -1230,14 +1230,14 @@ async function checkPause() {
 async function extractAndAnalyzeFiles(letterData) {
     let analysisSuccess = false;
 
-    updatePanelStep(3, 'loading', 'در حال باز کردن منوی فایل‌های ضمیمه...');
+    updatePanelStep(3, 'loading', 'در حال باز کردن منوی اسناد و پیوست‌های نامه...');
 
     let scannedDiv = null;
     let foundDoc = null;
-    let dependencyOpened = false;
+    let allFiles = [];
 
-    for (let i = 0; i < 30; i++) {
-        // ۱. بررسی می‌کنیم که آیا منوی پیوست‌ها (ScannedImages) باز شده است یا خیر
+    // ۱. بررسی یا باز کردن منوی زنجیره مدرک و پیوست‌ها (ScannedImages)
+    for (let attempt = 0; attempt < 15; attempt++) {
         for (const doc of allDocs()) {
             const div = doc.getElementById('ScannedImages');
             if (div && div.innerHTML.includes('DownLoad_OnClick')) {
@@ -1246,38 +1246,28 @@ async function extractAndAnalyzeFiles(letterData) {
                 break;
             }
         }
+        if (scannedDiv) break;
 
-        if (scannedDiv) {
-            aiLogger.info('✅ ScannedImages found on attempt ' + (i + 1));
-            dependencyOpened = true;
-            break;
-        }
-
-        // ۲. اگر هنوز باز نشده، سعی می‌کنیم روی دکمه زنجیره کلیک کنیم
+        // اگر هنوز باز نشده، روی دکمه زنجیره مدرک (ulDependency) کلیک کن
         for (const doc of allDocs()) {
             const depBtn = doc.getElementById('ulDependency');
             if (depBtn) {
-                try { depBtn.click(); } catch (e) { }
+                try { depBtn.click(); } catch(e) {}
                 break;
             }
         }
-
-        updatePanelStep(3, 'loading', `در حال انتظار برای لود زنجیره مدرک... (تلاش ${i + 1} از 30)`);
-        await sleep(1000);
+        updatePanelStep(3, 'loading', `در حال انتظار برای باز شدن اسناد نامه... (${attempt + 1}/15)`);
+        await sleep(800);
     }
 
-    if (!dependencyOpened) {
-        aiLogger.warn('دکمه زنجیره مدرک یا منوی پیوست‌ها پیدا نشد.');
-    }
-
-    // ۳. استخراج فایل‌ها
-    let allFiles = [];
     if (scannedDiv) {
+        aiLogger.info('✅ ScannedImages found with download buttons');
         const downloadBtns = scannedDiv.querySelectorAll('div[onclick*="DownLoad_OnClick"]');
+        let fileIndex = 1;
         for (const btn of downloadBtns) {
             const onclick = btn.getAttribute('onclick') || '';
             if (onclick.includes("'true'")) {
-                let labelStr = 'فایل ' + (allFiles.length + 1);
+                let labelStr = 'فایل ' + fileIndex;
                 let ext = '';
                 const tr = btn.closest('tr');
                 if (tr) {
@@ -1288,21 +1278,40 @@ async function extractAndAnalyzeFiles(letterData) {
                     }
                 }
                 if (!SKIP_EXTENSIONS.has(ext)) {
-                    allFiles.push({ type: 'btn', btn, label: labelStr });
+                    allFiles.push({
+                        type: 'btn',
+                        btn,
+                        label: labelStr,
+                        isPrimary: (fileIndex === 1) // اولین فایل همیشه سند اصلی وارده است
+                    });
+                    fileIndex++;
                 }
             }
         }
     }
 
+    // ۲. اگر منوی زنجیره مدرک باز نشد، بررسی تصویر اسکن مستقیم (img-scanned)
     if (allFiles.length === 0) {
-        allFiles = getAllFileUrls().map(f => ({ type: 'url', url: f.url, label: f.label }));
+        for (const doc of allDocs()) {
+            const scannedImg = doc.getElementById('img-scanned');
+            if (scannedImg && scannedImg.src && scannedImg.src.length > 100) {
+                allFiles.push({
+                    type: 'url',
+                    url: scannedImg.src,
+                    label: 'سند اصلی (اسکن)',
+                    isPrimary: true
+                });
+                break;
+            }
+        }
     }
 
     aiLogger.info(`📂 Found ${allFiles.length} file(s):`, allFiles.map(f => f.label));
 
-    if (allFiles.length > 10) {
-        aiLogger.info(`Found ${allFiles.length} files, but limiting to first 10.`);
-        allFiles = allFiles.slice(0, 10);
+    // برای جلوگیری از طولانی شدن بیش از حد، حداکثر ۳ فایل را پردازش می‌کنیم (سند اصلی + ۲ پیوست)
+    if (allFiles.length > 3) {
+        aiLogger.info(`Found ${allFiles.length} files, limiting to first 3 to prevent memory and time overflow.`);
+        allFiles = allFiles.slice(0, 3);
     }
 
     if (allFiles.length > 0) {
@@ -1312,24 +1321,25 @@ async function extractAndAnalyzeFiles(letterData) {
             const validFiles = downloadedFiles.filter(f => f.success && f.text);
 
             if (validFiles.length > 0) {
-                updatePanelStep(3, 'loading', `در حال استخراج ساختار نامه با مدل محلی LM Studio (Qwen 3.5)...`);
+                updatePanelStep(3, 'loading', `در حال استخراج ساختار نامه با مدل محلی LM Studio...`);
 
                 let combinedText = '';
                 let aiPromptText = '';
                 for (let i = 0; i < validFiles.length; i++) {
                     const rawFileText = (validFiles[i].text || '').trim();
-                    combinedText += `\n\n--- [${validFiles[i].label}] ---\n${rawFileText}`;
+                    const isPrimary = validFiles[i].isPrimary || (i === 0);
 
-                    // برای پرامپت هوش مصنوعی، فایل‌های حجیم خلاصه می‌شوند تا پنجره بافت سرریز نکند
-                    let boundedText = rawFileText;
-                    if (boundedText.length > 10000) {
-                        boundedText = boundedText.substring(0, 8000) + '\n\n... [ادامه صفحات این ضمیمه خلاصه شد] ...\n\n' + boundedText.substring(boundedText.length - 2000);
+                    if (isPrimary) {
+                        combinedText += `\n\n=== سند اصلی و نامه جاری [${validFiles[i].label}] ===\n<PRIMARY_DOCUMENT_HEADER>\n${rawFileText}\n</PRIMARY_DOCUMENT_HEADER>`;
+                        aiPromptText += `\n\n=== سند اصلی و نامه جاری [${validFiles[i].label}] (شماره نامه و تاریخ الزماً از این سند استخراج شود) ===\n<PRIMARY_DOCUMENT_HEADER>\n${rawFileText}\n</PRIMARY_DOCUMENT_HEADER>`;
+                    } else {
+                        combinedText += `\n\n=== پیوست ثانویه [${validFiles[i].label}] ===\n${rawFileText}`;
+                        let boundedText = rawFileText;
+                        if (boundedText.length > 6000) {
+                            boundedText = boundedText.substring(0, 5000) + '\n\n... [ادامه صفحات این ضمیمه خلاصه شد] ...\n\n' + boundedText.substring(boundedText.length - 1000);
+                        }
+                        aiPromptText += `\n\n=== پیوست ثانویه [${validFiles[i].label}] (از استخراج شماره یا تاریخ از این بخش خودداری کنید) ===\n${boundedText}`;
                     }
-                    aiPromptText += `\n\n--- [${validFiles[i].label}] ---\n${boundedText}`;
-                }
-
-                if (aiPromptText.length > 22000) {
-                    aiPromptText = aiPromptText.substring(0, 18000) + '\n\n... [بخشی از پیوست‌های طولانی خلاصه شد] ...\n\n' + aiPromptText.substring(aiPromptText.length - 3500);
                 }
 
                 let ocrRes = null;
@@ -1830,10 +1840,10 @@ async function fillFormFields(data) {
             year = norm.year;
         }
 
-        // اصلاح خطای فونت نستعلیق ماه 02 به 06 در صورتی که تقویم جاری در شهریور است
+        // اصلاح خطای فونت نستعلیق یا وارونگی ماه 02 یا 09 به 06 در صورتی که تقویم جاری در شهریور است
         const curJalali = getCurrentJalaliDate();
-        if (parseInt(month, 10) === 2 && parseInt(curJalali.month, 10) === 6) {
-            aiLogger.info('🔄 تصحیح ماه 02 به 06 در فرم وارده');
+        if ((parseInt(month, 10) === 2 || parseInt(month, 10) === 9) && parseInt(curJalali.month, 10) === 6) {
+            aiLogger.info('🔄 تصحیح ماه به 06 در فرم وارده');
             month = '06';
         }
 
@@ -1844,10 +1854,22 @@ async function fillFormFields(data) {
             year = validDate.year;
         }
 
-        const dayEl = document.getElementById('ViewImportOriginDate_Day');
-        const monthEl = document.getElementById('ViewImportOriginDate_Month');
-        const yearEl = document.getElementById('ViewImportOriginDate_Year');
-        const constEl = document.getElementById('txtOrigionConstYear');
+        function findDateEl(id) {
+            let el = document.getElementById(id);
+            if (el) return el;
+            for (const doc of allDocs()) {
+                try {
+                    el = doc.getElementById(id);
+                    if (el) return el;
+                } catch(e) {}
+            }
+            return null;
+        }
+
+        const dayEl = findDateEl('ViewImportOriginDate_Day') || findDateEl('txtOrigionDate_Day');
+        const monthEl = findDateEl('ViewImportOriginDate_Month') || findDateEl('txtOrigionDate_Month');
+        const yearEl = findDateEl('ViewImportOriginDate_Year') || findDateEl('txtOrigionDate_Year');
+        const constEl = findDateEl('txtOrigionConstYear') || findDateEl('txtOriginConstYear');
 
         if (dayEl) {
             dayEl.setAttribute('dir', 'ltr');
@@ -1878,7 +1900,7 @@ async function fillFormFields(data) {
             setVal(constEl, '14');
         }
 
-        const mainDateEl = document.getElementById('ViewImportOriginDate');
+        const mainDateEl = findDateEl('ViewImportOriginDate') || findDateEl('txtOriginDate') || findDateEl('txtOrigionDate');
         if (mainDateEl && mainDateEl !== dayEl && mainDateEl !== monthEl && mainDateEl !== yearEl) {
             const yStr = String(year || '05');
             const y2 = yStr.length === 4 ? yStr.substring(2) : yStr;
@@ -2213,15 +2235,13 @@ async function downloadAndConvertFiles(filesInfo, doc) {
 
             // ثبت زمان قبل از کلیک جهت جلوگیری از تداخل دانلودهای قبلی یا از دست رفتن دانلود
             const startTime = Date.now() - 1000;
+            const payload = { startTime, label: fileInfo.label };
 
-            if (fileInfo.type === 'btn') {
+            if (fileInfo.type === 'url' && fileInfo.url) {
+                payload.url = fileInfo.url;
+            } else if (fileInfo.type === 'btn' && fileInfo.btn) {
                 // کلیک واقعی روی دکمه برای دانلود نیتیو توسط مرورگر
                 fileInfo.btn.click();
-            } else if (fileInfo.type === 'url') {
-                const a = document.createElement('a');
-                a.href = fileInfo.url;
-                a.download = '';
-                a.click();
             }
 
             // تاخیر کوتاه برای ثبت دانلود در مرورگر
@@ -2230,11 +2250,16 @@ async function downloadAndConvertFiles(filesInfo, doc) {
             // منتظر دانلود شدن و گرفتن نتیجه متنی مستقیما از سرور محلی
             const res = await chrome.runtime.sendMessage({
                 action: 'ocrNativeDownload',
-                payload: { startTime }
+                payload
             });
 
             if (res.success && res.text) {
-                results.push({ success: true, text: res.text, label: fileInfo.label });
+                results.push({
+                    success: true,
+                    text: res.text,
+                    label: fileInfo.label,
+                    isPrimary: fileInfo.isPrimary || (i === 0)
+                });
             } else {
                 results.push({ success: false, error: res.error || 'Empty text', label: fileInfo.label });
             }
@@ -2407,6 +2432,7 @@ function setVal(el, value) {
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
     el.dispatchEvent(new Event('blur', { bubbles: true }));
+    el.dispatchEvent(new Event('keyup', { bubbles: true }));
 }
 
 function toFarsiDigits(str) {
@@ -2734,9 +2760,9 @@ function parsePersianDateString(raw) {
         let tmp = numM; numM = numD; numD = tmp;
     }
 
-    // اصلاح خطای OCR ماه 02 به 06 در فونت نستعلیق هنگامی که ماه جاری 06 است
+    // اصلاح خطای OCR ماه 02 یا 09 به 06 در فونت نستعلیق یا وارونگی هنگامی که ماه جاری 06 است
     const curJalali = getCurrentJalaliDate();
-    if (numM === 2 && parseInt(curJalali.month, 10) === 6 && (numY === 5 || numY === 1405 || numY === 4 || numY === 1404)) {
+    if ((numM === 2 || numM === 9) && parseInt(curJalali.month, 10) === 6 && (numY === 5 || numY === 1405 || numY === 4 || numY === 1404)) {
         numM = 6;
     }
 

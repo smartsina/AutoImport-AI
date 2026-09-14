@@ -388,8 +388,8 @@ def clean_repeating_loops(text: str) -> str:
 def is_hallucination_line(line: str) -> bool:
     """تشخیص خطوط حاوی کاراکترها یا کلمات توهمی پشتو/اردو"""
     import re
-    # کاراکترهای پشتو و اردو که در فارسی اصلا وجود ندارند
-    pashto_urdu_chars = r'[\u0679\u067c\u0681\u0685\u0688\u0689\u0691\u0693\u0696\u0698\u06ba\u06bc\u06be\u06c1\u06cd\u06d0\u06d2]'
+    # کاراکترهای منحصراً پشتو و اردو که در الفبای فارسی وجود ندارند (حذف ژ، ھ و ہ که در فارسی رایج هستند)
+    pashto_urdu_chars = r'[\u0679\u067c\u0681\u0685\u0688\u0689\u0691\u0693\u0696\u06ba\u06bc\u06cd\u06d0\u06d2]'
     if re.search(pashto_urdu_chars, line):
         return True
     # کلمات توقف و عبارات معروف پشتو که در توهم مدل‌های VLM رخ می‌دهد
@@ -405,7 +405,7 @@ def is_hallucination_line(line: str) -> bool:
 
 
 def filter_hallucinations(text: str) -> str:
-    """حذف کامل خطوط و عبارات توهمی غیرفارسی از متن OCR"""
+    """حذف خطوط و عبارات توهمی غیرفارسی از متن OCR"""
     if not text:
         return ''
     lines = text.splitlines()
@@ -417,8 +417,8 @@ def filter_hallucinations(text: str) -> str:
             continue
         cleaned.append(line)
 
-    # اگر بیش از ۳۵٪ متن توهم بوده باشد، کل خروجی پدل نادیده گرفته می‌شود
-    if len(lines) > 0 and (hallucination_count / len(lines)) > 0.35:
+    # اگر تعداد خطوط زیاد باشد و بیش از ۵۰٪ متن توهم خالص باشد کل متن را باطل کن
+    if len(lines) >= 6 and hallucination_count >= 3 and (hallucination_count / len(lines)) > 0.5:
         logger.warning(f"⚠️ کل متن به دلیل توهم بالای VLM ({hallucination_count}/{len(lines)} خط) نادیده گرفته شد.")
         return ''
     return '\n'.join(cleaned)
@@ -756,7 +756,7 @@ def run_ocr(image_path):
         future_apple = executor.submit(run_apple)
         future_paddle = executor.submit(run_paddle)
         try:
-            apple_raw = future_apple.result(timeout=25)
+            apple_raw = future_apple.result(timeout=60)
         except Exception as e:
             logger.warning(f"Apple Vision timeout/error: {e}")
         try:
@@ -799,7 +799,9 @@ def run_ocr(image_path):
             except Exception as e:
                 errors.append(f"{name}: {e}")
 
-    raise Exception("همه موتورهای OCR شکست خوردند: " + " | ".join(errors))
+    # به جای پرتاب خطا که باعث 500 شدن کل سرور شود، متن خالی برمی‌گردانیم
+    logger.warning("⚠️ هیچ متنی از تصویر خوانده نشد یا تصویر سفید/ناخوانا بود.")
+    return {"text": "", "method": "none"}
 
 
 def preprocess(image_path):
@@ -873,6 +875,10 @@ def detect_file_type(data: bytes) -> str:
         return 'tiff'
     if b'%PDF' in data[:1024]:  # هدر PDF در جای دیگری
         return 'pdf'
+    # تشخیص صفحات HTML/XML وب برای ممانعت از ارسال اشتباه به موتور PDF
+    stripped = data.lstrip()[:100].lower()
+    if stripped.startswith((b'<!doctype', b'<html', b'<?xml')):
+        return 'html'
     # اگر تصویر با فرمت دیگری (WebP, BMP, GIF, JPEG خاص) باشد
     try:
         from PIL import Image
@@ -986,14 +992,34 @@ def ocr_endpoint():
             if not os.path.exists(fp):
                 return jsonify({"success": False, "error": f"فایل پیدا نشد: {fp}"}), 404
 
+            should_delete = data.get('delete_source', True)
+            if should_delete:
+                tmps.append(fp)
+
             with open(fp, 'rb') as fh:
                 file_bytes = fh.read()
             file_type = detect_file_type(file_bytes)
 
-            if file_type in ('pdf', 'unknown_try_pdf'):
+            if file_type == 'html':
+                text_content = file_bytes.decode('utf-8', errors='ignore')
+                if 'FarzinSoft' in text_content or 'DialogName' in text_content or 'CloseDialogPageInHome' in text_content:
+                    logger.warning("⚠️ فایل دانلود شده صفحه اسکریپتی یا پاپ‌آپ داخلی فرزین است نه سند پیوست.")
+                    return jsonify({"success": False, "error": "فایل دانلود شده صفحه وب داخلی فرزین است نه سند پیوست."}), 400
+                import re
+                clean_text = re.sub(r'<script[\s\S]*?</script>', '', text_content, flags=re.I)
+                clean_text = re.sub(r'<style[\s\S]*?</style>', '', clean_text, flags=re.I)
+                clean_text = re.sub(r'<[^>]+>', ' ', clean_text)
+                clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+                if len(clean_text) > 20:
+                    clean_text = postprocess_text(clean_text)
+                    return jsonify({"success": True, "text": clean_text, "method": "html_text", "pages": 1})
+                return jsonify({"success": False, "error": "صفحه وب فاقد متن اداری است"}), 400
+
+            elif file_type in ('pdf', 'unknown_try_pdf'):
                 direct_text = extract_pdf_text(fp)
                 if direct_text and len(direct_text.strip()) > 20:
                     logger.info(f"✅ PDF متنی: {len(direct_text)} کاراکتر")
+                    direct_text = postprocess_text(direct_text)
                     return jsonify({"success": True, "text": direct_text, "method": "pdf_text", "pages": 1})
                 pages = pdf_to_images(fp); tmps.extend(pages); image_paths.extend(pages)
             else:
