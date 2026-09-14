@@ -1418,10 +1418,11 @@ function extractHeaderOriginNo(rawText) {
     const lines = (headerSection ? headerSection.split('\n') : enRaw.split('\n'))
         .map(l => l.trim()).filter(Boolean);
 
-    // ۱. اولویت ۱: خط دارای برچسب صریح "شماره نامه" یا "شماره صادره" یا "شماره وارده" یا "شماره مدرک"
+    // ۱. اولویت ۱: خط دارای برچسب صریح "شماره نامه" یا "شماره صادره" یا "شماره وارده" یا "شماره مدرک" یا "شماره:"
     for (let i = 0; i < Math.min(lines.length, 35); i++) {
         const line = lines[i];
-        const match = line.match(/(?:شماره\s*نامه|شماره\s*صادره|شماره\s*وارده|شماره\s*مدرک|letter\s*no\.?)\s*[:؛-]?\s*([^\n\r]+)/i);
+        if (line.includes('پرونده') || line.includes('بایگانی') || line.includes('پلاک') || line.includes('کلاسه')) continue;
+        const match = line.match(/(?:شماره\s*نامه|شماره\s*صادره|شماره\s*وارده|شماره\s*مدرک|letter\s*no\.?|شماره|ثماره|no\.?)\s*[:؛-]?\s*([^\n\r]+)/i);
         if (match) {
             let cand = match[1].trim();
             if (cand && !cand.startsWith('شماره') && isValidOriginNoCandidate(cand)) {
@@ -1442,30 +1443,16 @@ function extractHeaderOriginNo(rawText) {
         }
     }
 
-    // ۳. کدهای اداری اسلش‌دار حاوی 140x یا 40x در هدر
+    // ۳. کدهای اداری اسلش‌دار حاوی 140x یا 40x در هدر (شامل کدهای اداری چندبخشی و دارای پسوند مانند 1405/18814/44/56/ص)
     for (let i = 0; i < Math.min(lines.length, 30); i++) {
         const line = lines[i];
         if (isDateString(line) || line.includes('تاريخ') || line.includes('تاریخ') || line.includes('پرونده') || line.includes('بایگانی')) continue;
-        const codeMatch = line.match(/\b([a-zA-Z\u0600-\u06FF0-9]{1,6}[\/\-](?:140[0-9]|40[0-9])[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10})\b/) ||
-                          line.match(/\b((?:140[0-9]|40[0-9])[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10}[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,6})\b/) ||
-                          line.match(/\b([a-zA-Z\u0600-\u06FF0-9]{1,6}[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,6}[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10}[\/\-](?:140[0-9]|40[0-9]))\b/);
+        const codeMatch = line.match(/\b((?:140[0-9]|40[0-9]|[a-zA-Z\u0600-\u06FF0-9]{1,10})(?:[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10}){2,6})\b/) ||
+                          line.match(/\b([a-zA-Z\u0600-\u06FF0-9]{1,6}[\/\-](?:140[0-9]|40[0-9])[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10})\b/) ||
+                          line.match(/\b((?:140[0-9]|40[0-9])[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10}[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,6})\b/);
         if (codeMatch) {
             const norm = normalizeLetterNumber(codeMatch[1]);
             if (norm && isValidOriginNoCandidate(norm)) return norm;
-        }
-    }
-
-    // ۴. برچسب عمومی "شماره:" در خطوط هدر (به استثنای شماره پرونده و شماره بایگانی)
-    for (let i = 0; i < Math.min(lines.length, 35); i++) {
-        const line = lines[i];
-        if (line.includes('پرونده') || line.includes('بایگانی') || line.includes('پلاک') || line.includes('کلاسه')) continue;
-        const match = line.match(/(?:شماره|ثماره|no\.?)\s*[:؛-]?\s*([^\n\r]+)/i);
-        if (match) {
-            let cand = match[1].trim();
-            if (cand && isValidOriginNoCandidate(cand)) {
-                const norm = normalizeLetterNumber(cand);
-                if (norm && isValidOriginNoCandidate(norm)) return norm;
-            }
         }
     }
 
@@ -1505,9 +1492,20 @@ function normalizeExtractedLetterData(parsed, rawText = '', baseData = {}) {
     // اگر هدر سند صراحتاً شماره نامه دارد (مانند شماره قضایی 140509990025471163 یا اداری 1405/18384/44/56/ص)،
     // نباید با شماره‌های پرونده یا کدهای موجود در موضوع ایمیل (مانند 1405/7068/10) اشتباه شود یا جایگزین گردد
     if (headerOriginNo) {
-        if (!originNo || originNo !== headerOriginNo) {
-            logger.info(`🔄 اولویت رسمی شماره نامه هدر سند: جایگزینی شماره '${originNo || 'ناموجود'}' با شماره قطعی هدر '${headerOriginNo}'`);
+        if (!originNo) {
             originNo = headerOriginNo;
+        } else if (originNo !== headerOriginNo) {
+            const cleanOrigin = originNo.replace(/[\s\/\\_-]+/g, '');
+            const cleanHeader = headerOriginNo.replace(/[\s\/\\_-]+/g, '');
+            if (cleanOrigin.startsWith(cleanHeader) && cleanOrigin.length <= cleanHeader.length + 4) {
+                logger.info(`ℹ️ حفظ شماره نامه دقیق‌تر همراه با پسوند: '${originNo}' (هدر: '${headerOriginNo}')`);
+            } else if (cleanHeader.startsWith(cleanOrigin) && cleanHeader.length <= cleanOrigin.length + 4) {
+                logger.info(`🔄 تکمیل شماره نامه با هدر سند: '${headerOriginNo}' (قبلی: '${originNo}')`);
+                originNo = headerOriginNo;
+            } else {
+                logger.info(`🔄 اولویت رسمی شماره نامه هدر سند: جایگزینی شماره '${originNo || 'ناموجود'}' با شماره قطعی هدر '${headerOriginNo}'`);
+                originNo = headerOriginNo;
+            }
         }
     }
 
@@ -1574,7 +1572,7 @@ function normalizeExtractedLetterData(parsed, rawText = '', baseData = {}) {
     parsed.originNo = originNo ? normalizeLetterNumber(originNo) : '';
 
     // ۲. پاکسازی، نرمال‌سازی و اعتبارسنجی تاریخ نامه (originDate)
-    const headerDate = extractDateFromText(rawText);
+    let headerDate = extractDateFromText(rawText);
     let originDate = parsed.originDate;
 
     if (typeof originDate === 'string') {
@@ -1604,7 +1602,7 @@ function normalizeExtractedLetterData(parsed, rawText = '', baseData = {}) {
     };
 
     if (originDate) originDate = fixMonthConfusion(originDate);
-    if (headerDate) fixMonthConfusion(headerDate);
+    if (headerDate) headerDate = fixMonthConfusion(headerDate);
 
     // تضمین اکید عدم ثبت تاریخ در آینده و اصلاح هوشمند خطاهای OCR
     if (originDate) originDate = ensureValidPastOrPresentDate(originDate, currentJalali);

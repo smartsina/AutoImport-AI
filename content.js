@@ -1625,10 +1625,23 @@ async function startFormAutoImport(eventOrFlag) {
     }
 }
 
+function findFieldEl(id) {
+    if (!id) return null;
+    let el = document.getElementById(id);
+    if (el) return el;
+    for (const doc of allDocs()) {
+        try {
+            el = doc.getElementById(id);
+            if (el) return el;
+        } catch (e) { }
+    }
+    return null;
+}
+
 function validateRequiredFields() {
-    const subjectEl = document.getElementById('txtSubject_tbxAutocomplete');
-    const originNoEl = document.getElementById('txtImportOriginNO');
-    const senderEl = document.getElementById('Sender_tbxAutocomplete');
+    const subjectEl = findFieldEl('txtSubject_tbxAutocomplete');
+    const originNoEl = findFieldEl('txtImportOriginNO');
+    const senderEl = findFieldEl('Sender_tbxAutocomplete');
 
     const subject = subjectEl ? subjectEl.value.trim() : '';
     const originNo = originNoEl ? originNoEl.value.trim() : '';
@@ -1651,24 +1664,24 @@ function validateRequiredFields() {
 
 // --- خواندن داده‌های موجود از فرم (ایمیل فرستنده و...) ---
 function readExistingFormData() {
-    const senderEmailEl = document.getElementById('txtSenderCellorEmail');
+    const senderEmailEl = findFieldEl('txtSenderCellorEmail');
     const senderEmail = senderEmailEl ? senderEmailEl.value.trim() : '';
 
-    const senderInput = document.getElementById('Sender_tbxAutocomplete');
+    const senderInput = findFieldEl('Sender_tbxAutocomplete');
     const senderName = senderInput ? senderInput.value.trim() : '';
 
-    const originNoEl = document.getElementById('txtImportOriginNO');
+    const originNoEl = findFieldEl('txtImportOriginNO');
     const originNo = originNoEl ? originNoEl.value.trim() : '';
 
-    const dayEl = document.getElementById('ViewImportOriginDate_Day');
-    const monthEl = document.getElementById('ViewImportOriginDate_Month');
-    const yearEl = document.getElementById('ViewImportOriginDate_Year');
+    const dayEl = findFieldEl('ViewImportOriginDate_Day');
+    const monthEl = findFieldEl('ViewImportOriginDate_Month');
+    const yearEl = findFieldEl('ViewImportOriginDate_Year');
     let originDate = null;
     if (dayEl && monthEl && yearEl && dayEl.value && monthEl.value && yearEl.value) {
         originDate = parsePersianDateString(`${yearEl.value}/${monthEl.value}/${dayEl.value}`);
     }
 
-    const subjectEl = document.getElementById('txtSubject_tbxAutocomplete');
+    const subjectEl = findFieldEl('txtSubject_tbxAutocomplete');
     const subject = subjectEl ? subjectEl.value.trim() : '';
 
     // توجه: مقادیر پیش‌فرض فرم نباید مانع استخراج تاریخ دقیق سند پیوست توسط OCR شود
@@ -1816,7 +1829,7 @@ async function handleAutoCloseTab(force = false) {
 async function fillFormFields(data) {
     // شماره اولیه مدرک (کاملاً انگلیسی و چپ‌به‌راست بدون چرخش در مرورگر)
     if (data.originNo) {
-        const el = document.getElementById('txtImportOriginNO');
+        const el = findFieldEl('txtImportOriginNO');
         if (el) {
             const cleanNo = normalizeLetterNumber(data.originNo);
             if (!isDateString(cleanNo)) {
@@ -1824,9 +1837,12 @@ async function fillFormFields(data) {
                 el.style.direction = 'ltr';
                 el.style.textAlign = 'left';
                 setVal(el, cleanNo);
+                aiLogger.info('✅ شماره نامه ثبت شد:', cleanNo);
             } else {
                 aiLogger.warn('⚠️ ممانعت از ثبت تاریخ در فیلد شماره نامه (originNo):', cleanNo);
             }
+        } else {
+            aiLogger.warn('⚠️ فیلد شماره نامه (txtImportOriginNO) در صفحه یافت نشد');
         }
     }
 
@@ -1854,22 +1870,10 @@ async function fillFormFields(data) {
             year = validDate.year;
         }
 
-        function findDateEl(id) {
-            let el = document.getElementById(id);
-            if (el) return el;
-            for (const doc of allDocs()) {
-                try {
-                    el = doc.getElementById(id);
-                    if (el) return el;
-                } catch(e) {}
-            }
-            return null;
-        }
-
-        const dayEl = findDateEl('ViewImportOriginDate_Day') || findDateEl('txtOrigionDate_Day');
-        const monthEl = findDateEl('ViewImportOriginDate_Month') || findDateEl('txtOrigionDate_Month');
-        const yearEl = findDateEl('ViewImportOriginDate_Year') || findDateEl('txtOrigionDate_Year');
-        const constEl = findDateEl('txtOrigionConstYear') || findDateEl('txtOriginConstYear');
+        const dayEl = findFieldEl('ViewImportOriginDate_Day') || findFieldEl('txtOrigionDate_Day');
+        const monthEl = findFieldEl('ViewImportOriginDate_Month') || findFieldEl('txtOrigionDate_Month');
+        const yearEl = findFieldEl('ViewImportOriginDate_Year') || findFieldEl('txtOrigionDate_Year');
+        const constEl = findFieldEl('txtOrigionConstYear') || findFieldEl('txtOriginConstYear');
 
         if (dayEl) {
             dayEl.setAttribute('dir', 'ltr');
@@ -1900,25 +1904,29 @@ async function fillFormFields(data) {
             setVal(constEl, '14');
         }
 
-        const mainDateEl = findDateEl('ViewImportOriginDate') || findDateEl('txtOriginDate') || findDateEl('txtOrigionDate');
+        const mainDateEl = findFieldEl('ViewImportOriginDate') || findFieldEl('txtOriginDate') || findFieldEl('txtOrigionDate');
         if (mainDateEl && mainDateEl !== dayEl && mainDateEl !== monthEl && mainDateEl !== yearEl) {
             const yStr = String(year || '05');
             const y2 = yStr.length === 4 ? yStr.substring(2) : yStr;
             const fullVal = `14${y2.padStart(2, '0')}/${String(month || '01').padStart(2, '0')}/${String(day || '01').padStart(2, '0')}`;
             setVal(mainDateEl, fullVal);
         }
+        aiLogger.info('✅ تاریخ نامه ثبت شد:', `${day}/${month}/${year}`);
     }
 
     // فرستنده
     const senderName = data.sender || '';
     if (senderName) {
-        const el = document.getElementById('Sender_tbxAutocomplete');
-        if (el) setVal(el, senderName);
+        const el = findFieldEl('Sender_tbxAutocomplete');
+        if (el) {
+            setVal(el, senderName);
+            aiLogger.info('✅ فرستنده ثبت شد:', senderName);
+        }
     }
 
     // ایمیل/تلفن فرستنده
     if (data.senderEmail) {
-        const el = document.getElementById('txtSenderCellorEmail');
+        const el = findFieldEl('txtSenderCellorEmail');
         if (el) setVal(el, data.senderEmail);
     }
 
@@ -1927,22 +1935,25 @@ async function fillFormFields(data) {
 
     // موضوع
     if (data.subject) {
-        const el = document.getElementById('txtSubject_tbxAutocomplete');
-        if (el) setVal(el, data.subject);
+        const el = findFieldEl('txtSubject_tbxAutocomplete');
+        if (el) {
+            setVal(el, data.subject);
+            aiLogger.info('✅ موضوع ثبت شد:', data.subject);
+        }
     }
 
     // توضیحات (متن کامل تصحیح شده نامه توسط هوش مصنوعی)
     const bodyContent = data.description || data.rawText || '';
     const descText = (data.originNo ? 'شماره: ' + data.originNo + '\n\n' : '') + bodyContent;
     if (descText.trim()) {
-        const el = document.getElementById('txtImportDesc');
+        const el = findFieldEl('txtImportDesc');
         if (el) setVal(el, descText);
     }
 
     // کلیدواژه (گذر واژه) - قرار شد نام فرستنده یا سازمان به علاوه کلیدواژه‌ها وارد شود
     const kwText = [data.sender, data.keywords].filter(x => x).join(' - ');
     if (kwText) {
-        const el = document.getElementById('txtAreaDocKeywords');
+        const el = findFieldEl('txtAreaDocKeywords');
         if (el) setVal(el, kwText);
     }
 
@@ -1950,13 +1961,13 @@ async function fillFormFields(data) {
 }
 
 async function setReceiverField() {
-    const receiverInput = document.getElementById('Receiver_tbxAutocomplete');
+    const receiverInput = findFieldEl('Receiver_tbxAutocomplete');
     if (receiverInput) setVal(receiverInput, 'مدیریت اداره کل');
 
-    const receiverCode = document.getElementById('txtReceiverCode');
+    const receiverCode = findFieldEl('txtReceiverCode');
     if (receiverCode) setVal(receiverCode, '10');
 
-    const subjectCode = document.getElementById('txtSubjectCode');
+    const subjectCode = findFieldEl('txtSubjectCode');
     if (subjectCode) setVal(subjectCode, '10');
 }
 
@@ -1986,14 +1997,14 @@ async function executeAutoSaveAndSend() {
 }
 
 async function clickSave() {
-    const btn = document.getElementById('ulSave');
+    const btn = findFieldEl('ulSave');
     if (!btn) throw new Error('دکمه ذخیره (ulSave) پیدا نشد');
     btn.click();
     await sleep(3500);
 }
 
 async function clickSendAndHandle(refName) {
-    const btn = document.getElementById('ulSend');
+    const btn = findFieldEl('ulSend');
     if (!btn) throw new Error('دکمه ارجاع (ulSend) پیدا نشد');
     btn.click();
     // صبر بیشتر برای لود کامل پاپ‌آپ ارجاع
@@ -2426,7 +2437,8 @@ function getLetterImageUrl() {
 // ۸. Helpers
 // ===================================================
 function setVal(el, value) {
-    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const win = el.ownerDocument?.defaultView || window;
+    const proto = el.tagName === 'TEXTAREA' ? (win.HTMLTextAreaElement?.prototype || HTMLTextAreaElement.prototype) : (win.HTMLInputElement?.prototype || HTMLInputElement.prototype);
     const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
     if (setter) setter.call(el, value); else el.value = value;
     el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -2803,7 +2815,7 @@ function* allDocs(rootDoc = null) {
     }
     if (!rootDoc) return;
     yield rootDoc;
-    for (const f of rootDoc.querySelectorAll('iframe')) {
+    for (const f of rootDoc.querySelectorAll('iframe, frame')) {
         try {
             const d = f.contentDocument || f.contentWindow?.document;
             if (d) yield* allDocs(d);

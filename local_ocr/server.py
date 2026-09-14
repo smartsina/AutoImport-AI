@@ -946,12 +946,6 @@ def ocr_endpoint():
             file_type = detect_file_type(img_bytes)
             logger.info(f"📥 Received: {len(img_bytes)} bytes, detected: {file_type}")
 
-            # ذخیره debug
-            try:
-                with open(os.path.join(os.path.dirname(__file__), "debug_received"), "wb") as f:
-                    f.write(img_bytes)
-            except: pass
-
             if file_type in ('pdf', 'unknown_try_pdf'):
                 # ذخیره به عنوان PDF
                 tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False, prefix='ocr_in_')
