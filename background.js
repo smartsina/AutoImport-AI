@@ -1479,6 +1479,7 @@ function extractHeaderOriginNo(rawText) {
         }
     }
 
+    // ۵. شماره‌های معکوس مانند 0663/5041/ف ا یا 5041/0663/ف ا در خطوط ابتدایی متن
     // ۴. شماره‌های معکوس مانند 0663/5041/ف ا یا 5041/0663/ف ا در خطوط ابتدایی متن
     for (let i = 0; i < Math.min(lines.length, 25); i++) {
         const line = lines[i];
@@ -1725,15 +1726,18 @@ function extractDateFromText(rawText) {
         return null;
     };
 
-    // اولویت ۱: جستجو در بخش هدر مشخص‌شده
+    // اولویت ۱: جستجو در تگ اختصاصی هدر
     if (headerText) {
-        const lines = headerText.split('\n').map(l => l.trim()).filter(Boolean);
-        const res = searchLinesForDate(lines);
+        const hLines = headerText.split('\n').map(l => l.trim()).filter(Boolean);
+        const res = searchLinesForDate(hLines);
         if (res) return res;
     }
 
-    // اولویت ۲: جستجو در کل متن
+    // اولویت ۲: جستجو در ۳۵ خط اول متن کل
     const allLines = enText.split('\n').map(l => l.trim()).filter(Boolean);
+    const topLines = allLines.slice(0, 35);
+    const res = searchLinesForDate(topLines);
+    if (res) return res;
     const resAll = searchLinesForDate(allLines);
     if (resAll) return resAll;
 

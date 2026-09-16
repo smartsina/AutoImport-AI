@@ -1330,10 +1330,8 @@ async function extractAndAnalyzeFiles(letterData) {
                     const isPrimary = validFiles[i].isPrimary || (i === 0);
 
                     if (isPrimary) {
-                        const hasHeader = rawFileText.includes('<PRIMARY_DOCUMENT_HEADER>');
-                        const filePrompt = hasHeader ? rawFileText : `<PRIMARY_DOCUMENT_HEADER>\n${rawFileText.substring(0, 1500)}\n</PRIMARY_DOCUMENT_HEADER>\n${rawFileText.substring(1500)}`;
-                        combinedText += `\n\n=== سند اصلی و نامه جاری [${validFiles[i].label}] ===\n${rawFileText}`;
-                        aiPromptText += `\n\n=== سند اصلی و نامه جاری [${validFiles[i].label}] (شماره نامه و تاریخ الزماً از این سند استخراج شود) ===\n${filePrompt}`;
+                        combinedText += `\n\n=== سند اصلی و نامه جاری [${validFiles[i].label}] ===\n<PRIMARY_DOCUMENT_HEADER>\n${rawFileText}\n</PRIMARY_DOCUMENT_HEADER>`;
+                        aiPromptText += `\n\n=== سند اصلی و نامه جاری [${validFiles[i].label}] (شماره نامه و تاریخ الزماً از این سند استخراج شود) ===\n<PRIMARY_DOCUMENT_HEADER>\n${rawFileText}\n</PRIMARY_DOCUMENT_HEADER>`;
                     } else {
                         combinedText += `\n\n=== پیوست ثانویه [${validFiles[i].label}] ===\n${rawFileText}`;
                         let boundedText = rawFileText;
@@ -1635,9 +1633,87 @@ function findFieldEl(id) {
         try {
             el = doc.getElementById(id);
             if (el) return el;
+            el = doc.querySelector(`[id$="${id}"], [id*="${id}"], [name$="${id}"], [name*="${id}"]`);
+            if (el) return el;
         } catch (e) { }
     }
     return null;
+}
+
+function findDateFields() {
+    let dayEl = null, monthEl = null, yearEl = null, constEl = null, mainDateEl = null;
+
+    const daySelectors = [
+        '#ViewImportOriginDate_Day', '#txtOriginDate_Day', '#txtOrigionDate_Day',
+        'input[id$="ViewImportOriginDate_Day"]', 'input[id$="txtOriginDate_Day"]', 'input[id$="txtOrigionDate_Day"]',
+        'input[name$="ViewImportOriginDate_Day"]', 'input[name$="txtOriginDate_Day"]', 'input[name$="txtOrigionDate_Day"]',
+        'input[id*="OriginDate"][id*="Day"]', 'input[id*="OrigionDate"][id*="Day"]',
+        'input[name*="OriginDate"][name*="Day"]', 'input[name*="OrigionDate"][name*="Day"]',
+        'select[id*="OriginDate"][id*="Day"]', 'select[name*="OriginDate"][name*="Day"]'
+    ];
+    const monthSelectors = [
+        '#ViewImportOriginDate_Month', '#txtOriginDate_Month', '#txtOrigionDate_Month',
+        'input[id$="ViewImportOriginDate_Month"]', 'input[id$="txtOriginDate_Month"]', 'input[id$="txtOrigionDate_Month"]',
+        'input[name$="ViewImportOriginDate_Month"]', 'input[name$="txtOriginDate_Month"]', 'input[name$="txtOrigionDate_Month"]',
+        'input[id*="OriginDate"][id*="Month"]', 'input[id*="OrigionDate"][id*="Month"]',
+        'input[name*="OriginDate"][name*="Month"]', 'input[name*="OrigionDate"][name*="Month"]',
+        'select[id*="OriginDate"][id*="Month"]', 'select[name*="OriginDate"][name*="Month"]'
+    ];
+    const yearSelectors = [
+        '#ViewImportOriginDate_Year', '#txtOriginDate_Year', '#txtOrigionDate_Year',
+        'input[id$="ViewImportOriginDate_Year"]', 'input[id$="txtOriginDate_Year"]', 'input[id$="txtOrigionDate_Year"]',
+        'input[name$="ViewImportOriginDate_Year"]', 'input[name$="txtOriginDate_Year"]', 'input[name$="txtOrigionDate_Year"]',
+        'input[id*="OriginDate"][id*="Year"]', 'input[id*="OrigionDate"][id*="Year"]',
+        'input[name*="OriginDate"][name*="Year"]', 'input[name*="OrigionDate"][name*="Year"]'
+    ];
+    const constSelectors = [
+        '#txtOriginConstYear', '#txtOrigionConstYear',
+        'input[id$="txtOriginConstYear"]', 'input[id$="txtOrigionConstYear"]',
+        'input[id*="ConstYear"]', 'input[name*="ConstYear"]'
+    ];
+    const mainSelectors = [
+        '#ViewImportOriginDate', '#txtOriginDate', '#txtOrigionDate', '#txtLetterDate', '#txtImportOriginDate',
+        'input[id$="ViewImportOriginDate"]', 'input[id$="txtOriginDate"]', 'input[id$="txtOrigionDate"]',
+        'input[id*="OriginDate"]:not([id*="Day"]):not([id*="Month"]):not([id*="Year"]):not([id*="ConstYear"]):not([id*="NO"]):not([id*="No"]):not([id*="Time"])',
+        'input[name*="OriginDate"]:not([name*="Day"]):not([name*="Month"]):not([name*="Year"]):not([name*="ConstYear"]):not([name*="NO"]):not([name*="No"]):not([name*="Time"])'
+    ];
+
+    for (const doc of allDocs()) {
+        try {
+            if (!dayEl) {
+                for (const s of daySelectors) {
+                    const el = doc.querySelector(s);
+                    if (el) { dayEl = el; break; }
+                }
+            }
+            if (!monthEl) {
+                for (const s of monthSelectors) {
+                    const el = doc.querySelector(s);
+                    if (el) { monthEl = el; break; }
+                }
+            }
+            if (!yearEl) {
+                for (const s of yearSelectors) {
+                    const el = doc.querySelector(s);
+                    if (el) { yearEl = el; break; }
+                }
+            }
+            if (!constEl) {
+                for (const s of constSelectors) {
+                    const el = doc.querySelector(s);
+                    if (el) { constEl = el; break; }
+                }
+            }
+            if (!mainDateEl) {
+                for (const s of mainSelectors) {
+                    const el = doc.querySelector(s);
+                    if (el) { mainDateEl = el; break; }
+                }
+            }
+        } catch (e) { }
+    }
+
+    return { dayEl, monthEl, yearEl, constEl, mainDateEl };
 }
 
 function validateRequiredFields() {
@@ -1675,12 +1751,12 @@ function readExistingFormData() {
     const originNoEl = findFieldEl('txtImportOriginNO');
     const originNo = originNoEl ? originNoEl.value.trim() : '';
 
-    const dayEl = findFieldEl('ViewImportOriginDate_Day');
-    const monthEl = findFieldEl('ViewImportOriginDate_Month');
-    const yearEl = findFieldEl('ViewImportOriginDate_Year');
+    const { dayEl, monthEl, yearEl, mainDateEl } = findDateFields();
     let originDate = null;
     if (dayEl && monthEl && yearEl && dayEl.value && monthEl.value && yearEl.value) {
         originDate = parsePersianDateString(`${yearEl.value}/${monthEl.value}/${dayEl.value}`);
+    } else if (mainDateEl && mainDateEl.value) {
+        originDate = parsePersianDateString(mainDateEl.value);
     }
 
     const subjectEl = findFieldEl('txtSubject_tbxAutocomplete');
@@ -1722,9 +1798,9 @@ function setupRegistrationTabCloseListeners() {
         chrome.runtime.sendMessage({ action: 'registerFormTab' }).catch(() => {});
     } catch (e) { }
 
-    window.addEventListener('beforeunload', notifyBatchTabClosed);
-    window.addEventListener('pagehide', notifyBatchTabClosed);
-    window.addEventListener('unload', notifyBatchTabClosed);
+    // window.addEventListener('beforeunload', notifyBatchTabClosed);
+    // window.addEventListener('pagehide', notifyBatchTabClosed);
+    // window.addEventListener('unload', notifyBatchTabClosed);
 
     // اتصال فوری به دکمه بستن تب در فریم والد
     const attachToTabCloseBtn = () => {
@@ -1849,72 +1925,85 @@ async function fillFormFields(data) {
     }
 
     // تاریخ اولیه مدرک (چپ‌به‌راست و ارقام انگلیسی)
-    if (data.originDate) {
-        let { day, month, year } = data.originDate;
-        const norm = parsePersianDateString(`${year}/${month}/${day}`);
-        if (norm) {
-            day = norm.day;
-            month = norm.month;
-            year = norm.year;
-        }
-
-        // اصلاح خطای فونت نستعلیق یا وارونگی ماه 02 یا 09 به 06 در صورتی که تقویم جاری در شهریور است
+    let dateToSet = data.originDate;
+    if (!dateToSet || (!dateToSet.day && !dateToSet.month && !dateToSet.year)) {
         const curJalali = getCurrentJalaliDate();
-        if ((parseInt(month, 10) === 2 || parseInt(month, 10) === 9) && parseInt(curJalali.month, 10) === 6) {
-            aiLogger.info('🔄 تصحیح ماه به 06 در فرم وارده');
-            month = '06';
-        }
-
-        const validDate = ensureValidPastOrPresentDate({ day, month, year }, curJalali);
-        if (validDate) {
-            day = validDate.day;
-            month = validDate.month;
-            year = validDate.year;
-        }
-
-        const dayEl = findFieldEl('ViewImportOriginDate_Day') || findFieldEl('txtOrigionDate_Day');
-        const monthEl = findFieldEl('ViewImportOriginDate_Month') || findFieldEl('txtOrigionDate_Month');
-        const yearEl = findFieldEl('ViewImportOriginDate_Year') || findFieldEl('txtOrigionDate_Year');
-        const constEl = findFieldEl('txtOrigionConstYear') || findFieldEl('txtOriginConstYear');
-
-        if (dayEl) {
-            dayEl.setAttribute('dir', 'ltr');
-            dayEl.style.direction = 'ltr';
-            dayEl.style.textAlign = 'center';
-            if (day) setVal(dayEl, toEnglishDigits(String(day).padStart(2, '0')));
-        }
-        if (monthEl) {
-            monthEl.setAttribute('dir', 'ltr');
-            monthEl.style.direction = 'ltr';
-            monthEl.style.textAlign = 'center';
-            if (month) setVal(monthEl, toEnglishDigits(String(month).padStart(2, '0')));
-        }
-        if (yearEl) {
-            yearEl.setAttribute('dir', 'ltr');
-            yearEl.style.direction = 'ltr';
-            yearEl.style.textAlign = 'center';
-            if (year) {
-                const yStr = String(year);
-                const y2 = yStr.length === 4 ? yStr.substring(2) : yStr;
-                setVal(yearEl, toEnglishDigits(y2.padStart(2, '0')));
-            }
-        }
-        if (constEl && constEl.value !== '14') {
-            constEl.setAttribute('dir', 'ltr');
-            constEl.style.direction = 'ltr';
-            constEl.style.textAlign = 'center';
-            setVal(constEl, '14');
-        }
-
-        const mainDateEl = findFieldEl('ViewImportOriginDate') || findFieldEl('txtOriginDate') || findFieldEl('txtOrigionDate');
-        if (mainDateEl && mainDateEl !== dayEl && mainDateEl !== monthEl && mainDateEl !== yearEl) {
-            const yStr = String(year || '05');
-            const y2 = yStr.length === 4 ? yStr.substring(2) : yStr;
-            const fullVal = `14${y2.padStart(2, '0')}/${String(month || '01').padStart(2, '0')}/${String(day || '01').padStart(2, '0')}`;
-            setVal(mainDateEl, fullVal);
-        }
-        aiLogger.info('✅ تاریخ نامه ثبت شد:', `${day}/${month}/${year}`);
+        aiLogger.warn('⚠️ تاریخ در اطلاعات استخراج‌شده یافت نشد. استفاده از تاریخ رسمی امروز سیستم به عنوان پیش‌فرض:', curJalali);
+        dateToSet = { day: curJalali.day, month: curJalali.month, year: curJalali.shortYear };
     }
+
+    let { day, month, year } = dateToSet;
+    const norm = parsePersianDateString(`${year}/${month}/${day}`);
+    if (norm) {
+        day = norm.day;
+        month = norm.month;
+        year = norm.year;
+    }
+
+    // اصلاح خطای فونت نستعلیق یا وارونگی ماه 02 یا 09 به 06 در صورتی که تقویم جاری در شهریور است
+    const curJalali = getCurrentJalaliDate();
+    if ((parseInt(month, 10) === 2 || parseInt(month, 10) === 9) && parseInt(curJalali.month, 10) === 6) {
+        aiLogger.info('🔄 تصحیح ماه به 06 در فرم وارده');
+        month = '06';
+    }
+
+    const validDate = ensureValidPastOrPresentDate({ day, month, year }, curJalali);
+    if (validDate) {
+        day = validDate.day;
+        month = validDate.month;
+        year = validDate.year;
+    }
+
+    const { dayEl, monthEl, yearEl, constEl, mainDateEl } = findDateFields();
+
+    aiLogger.info('وضعیت فیلدهای تاریخ پیدا شده در فرم:', {
+        dayEl: !!dayEl,
+        monthEl: !!monthEl,
+        yearEl: !!yearEl,
+        constEl: !!constEl,
+        mainDateEl: !!mainDateEl,
+        targetDate: `${day}/${month}/${year}`
+    });
+
+    if (dayEl) {
+        dayEl.setAttribute('dir', 'ltr');
+        dayEl.style.direction = 'ltr';
+        dayEl.style.textAlign = 'center';
+        if (day) setVal(dayEl, toEnglishDigits(String(day).padStart(2, '0')));
+    }
+    if (monthEl) {
+        monthEl.setAttribute('dir', 'ltr');
+        monthEl.style.direction = 'ltr';
+        monthEl.style.textAlign = 'center';
+        if (month) setVal(monthEl, toEnglishDigits(String(month).padStart(2, '0')));
+    }
+    if (yearEl) {
+        yearEl.setAttribute('dir', 'ltr');
+        yearEl.style.direction = 'ltr';
+        yearEl.style.textAlign = 'center';
+        if (year) {
+            const yStr = String(year);
+            const y2 = (yStr.length === 4 ? yStr.substring(2) : yStr).padStart(2, '0');
+            const y4 = yStr.length === 4 ? yStr : ('14' + y2);
+            const maxLen = parseInt(yearEl.getAttribute('maxlength') || yearEl.maxLength || '0', 10);
+            const targetYearVal = (maxLen === 4 || (!constEl && maxLen !== 2)) ? y4 : y2;
+            setVal(yearEl, toEnglishDigits(targetYearVal));
+        }
+    }
+    if (constEl && constEl.value !== '14') {
+        constEl.setAttribute('dir', 'ltr');
+        constEl.style.direction = 'ltr';
+        constEl.style.textAlign = 'center';
+        setVal(constEl, '14');
+    }
+
+    if (mainDateEl && mainDateEl !== dayEl && mainDateEl !== monthEl && mainDateEl !== yearEl) {
+        const yStr = String(year || '05');
+        const y2 = (yStr.length === 4 ? yStr.substring(2) : yStr).padStart(2, '0');
+        const fullVal = `14${y2}/${String(month || '01').padStart(2, '0')}/${String(day || '01').padStart(2, '0')}`;
+        setVal(mainDateEl, fullVal);
+    }
+    aiLogger.info('✅ تاریخ نامه ثبت شد:', `${day}/${month}/${year}`);
 
     // فرستنده
     const senderName = data.sender || '';
@@ -2435,18 +2524,37 @@ function getLetterImageUrl() {
     return null;
 }
 
-// ===================================================
-// ۸. Helpers
-// ===================================================
 function setVal(el, value) {
+    if (!el) return;
     const win = el.ownerDocument?.defaultView || window;
-    const proto = el.tagName === 'TEXTAREA' ? (win.HTMLTextAreaElement?.prototype || HTMLTextAreaElement.prototype) : (win.HTMLInputElement?.prototype || HTMLInputElement.prototype);
-    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-    if (setter) setter.call(el, value); else el.value = value;
+    try { el.focus(); } catch (e) { }
+    el.dispatchEvent(new Event('focus', { bubbles: true }));
+
+    if (el.tagName === 'SELECT') {
+        const valStr = String(value).trim();
+        const valNum = parseInt(valStr, 10);
+        let found = false;
+        for (let i = 0; i < el.options.length; i++) {
+            const opt = el.options[i];
+            if (opt.value.trim() === valStr || parseInt(opt.value, 10) === valNum || opt.text.trim() === valStr) {
+                el.selectedIndex = i;
+                opt.selected = true;
+                el.value = opt.value;
+                found = true;
+                break;
+            }
+        }
+        if (!found) el.value = value;
+    } else {
+        const proto = el.tagName === 'TEXTAREA' ? (win.HTMLTextAreaElement?.prototype || HTMLTextAreaElement.prototype) : (win.HTMLInputElement?.prototype || HTMLInputElement.prototype);
+        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        if (setter) setter.call(el, value); else el.value = value;
+    }
+
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.dispatchEvent(new Event('blur', { bubbles: true }));
     el.dispatchEvent(new Event('keyup', { bubbles: true }));
+    el.dispatchEvent(new Event('blur', { bubbles: true }));
 }
 
 function toFarsiDigits(str) {
