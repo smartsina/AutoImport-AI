@@ -32,6 +32,7 @@ function isEmailListPage() {
 // ۱. تشخیص نوع صفحه و تزریق مناسب
 // ===================================================
 function detectPageAndInject() {
+    if (window.self !== window.top && !isEmailListPage() && !document.getElementById('ulSave') && !document.getElementById('ulSend') && !document.getElementById('txtImportOriginNO')) return;
     // صفحه لیست ایمیل (صندوق ورودی)
     if (isEmailListPage()) {
         injectEmailListButton();
@@ -128,6 +129,7 @@ function detectPageAndInject() {
 // ۲. صفحه لیست ایمیل
 // ===================================================
 function injectEmailListButton() {
+    if (window.self !== window.top && !isEmailListPage()) return;
     if (document.getElementById('ai-emaillist-btn')) return;
 
     // جستجوی گسترده‌تر برای toolbar - فارزین ممکن است ساختارهای مختلفی داشته باشد
@@ -773,7 +775,7 @@ function startRegistrationTabWatcher() {
 
             // حداقل ۳ ثانیه از باز شدن فرم گذشته باشد تا فرصت ایجاد DOM و لود اولیه داشته باشد
             const elapsed = Date.now() - (st.autoimport_batch_wait_time || 0);
-            if (elapsed < 3000) return;
+            if (elapsed < 30000) return;
 
             // بررسی آیا تب یا آی‌فریم فرم وارده هنوز در DOM باز است؟
             const isTabOpen = checkIsRegistrationTabOpen();
@@ -944,8 +946,6 @@ async function processNextBatchItem() {
         // ذخیره صف جدید و وضعیت انتظار
         await chrome.storage.local.set({
             autoimport_batch_queue: window.autoImportQueue,
-            autoimport_batch_waiting: true,
-            autoimport_batch_wait_time: Date.now(),
             autoimport_current_run_id: currentRunId
         });
 
@@ -1023,6 +1023,10 @@ async function processNextBatchItem() {
         if (!indicatorDiv) throw new Error('پاپ‌آپ انتخاب مدرک یا دکمه "سند وارده" پیدا نشد.');
 
         // 5. کلیک روی دکمه "سند وارده"
+        await chrome.storage.local.set({
+            autoimport_batch_waiting: true,
+            autoimport_batch_wait_time: Date.now()
+        });
         indicatorDiv.click();
         aiLogger.info('Clicked on سند وارده, form tab should open now.');
 
@@ -1836,15 +1840,22 @@ function setupRegistrationTabCloseListeners() {
 
 // --- پیدا کردن دکمه بستن تب وارده (بدون کلیک کردن) ---
 function findTabCloseButton() {
-    const docsToSearch = [document];
-    try { if (window.parent && window.parent.document) docsToSearch.push(window.parent.document); } catch (e) { }
-    try { if (window.top && window.top.document && window.top !== window.parent) docsToSearch.push(window.top.document); } catch (e) { }
-
-    const closeBtnSelectors = 'button.close, .close, .TabClose, [class*="close" i], [class*="TabClose"], [onclick*="close" i], [onclick*="Close" i], [title*="بستن"], [id^="btn-"]';
-
-    for (const doc of docsToSearch) {
+    for (const doc of allDocs()) {
         if (!doc) continue;
         try {
+            // استراتژی ۱: پیدا کردن تب‌های شامل کلمه "وارده" یا "ثبت"
+            const tabItems = Array.from(doc.querySelectorAll('li[id^="TabItem"]'));
+            for (const tab of tabItems) {
+                const tabText = (tab.textContent || '').replace(/\s+/g, ' ').trim();
+                if ((tabText.includes('وارده') || tabText.includes('ثبت') || tabText.includes('سند')) &&
+                    !tabText.includes('دريافت') && !tabText.includes('دریافت') && !tabText.includes('صندوق')) {
+                    const closeBtn = tab.querySelector('.close, .tab-close, .TabClose, [class*="close" i], [title*="بستن"]');
+                    if (closeBtn) return closeBtn;
+                }
+            }
+
+            // استراتژی ۲: پیدا کردن دکمه‌های بستن و بررسی والد
+            const closeBtnSelectors = 'button.close, .close, .TabClose, [class*="close" i], [class*="TabClose"], [onclick*="close" i], [onclick*="Close" i], [title*="بستن"], [id^="btn-"]';
             const allCloseButtons = Array.from(doc.querySelectorAll(closeBtnSelectors));
             for (const btn of allCloseButtons) {
                 const tabContainer = btn.closest('li, div[id^="TabItem"], a') || btn.parentElement;
@@ -1855,7 +1866,8 @@ function findTabCloseButton() {
                     return btn;
                 }
             }
-            // استراتژی ID فریم
+
+            // استراتژی ۳: ID فریم
             if (window.frameElement) {
                 const frameId = window.frameElement.id || (window.frameElement.parentElement ? window.frameElement.parentElement.id : '');
                 const tabIdMatch = frameId.match(/\d+/);
@@ -3283,10 +3295,10 @@ chrome.storage.onChanged.addListener((changes) => {
         if (!isEmailListPage()) return; // فقط فریم لیست ایمیل
         chrome.storage.local.get(['autoimport_batch_active', 'autoimport_batch_paused']).then(st => {
             if (st.autoimport_batch_active && !st.autoimport_batch_paused) {
-                aiLogger.info('Received batch_next signal in list frame, waiting 1s before next item...');
+                aiLogger.info('Received batch_next signal in list frame, waiting 2s before next item...');
                 window.isBatchProcessing = true;
                 window.batchIsBusy = false;
-                setTimeout(processNextBatchItem, 1000);
+                setTimeout(processNextBatchItem, 2000);
             }
         }).catch(() => {});
     }
