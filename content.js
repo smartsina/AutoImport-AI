@@ -203,8 +203,8 @@ function buildButtonHTML(label, extraClass = '') {
         border:none; border-radius:6px; color:#fff; font-size:12px;
         font-family:Tahoma,sans-serif; box-shadow:0 2px 8px rgba(99,102,241,.4);
         white-space:nowrap; vertical-align:middle;">
-        <span style="font-size:15px">🤖</span>
-        <span>${label}</span>
+        <span style="font-size:15px; pointer-events:none;">🤖</span>
+        <span style="pointer-events:none;">${label}</span>
     </button>`;
 }
 
@@ -363,10 +363,14 @@ async function handleBatchEmailImport() {
     window.autoImportQueue = keysToProcess;
     window.batchTotal = keysToProcess.length;
     window.isBatchProcessing = true;
+    window.batchIsBusy = false;
     await chrome.storage.local.set({
         autoimport_batch_active: true,
         autoimport_batch_queue: keysToProcess,
-        autoimport_batch_total: keysToProcess.length
+        autoimport_batch_total: keysToProcess.length,
+        autoimport_batch_waiting: false,
+        autoimport_batch_wait_time: 0,
+        autoimport_batch_paused: false
     });
 
     showNotification(`شروع پردازش جمعی برای ${keysToProcess.length} نامه...`, 'info');
@@ -773,9 +777,9 @@ function startRegistrationTabWatcher() {
                 return;
             }
 
-            // حداقل ۳ ثانیه از باز شدن فرم گذشته باشد تا فرصت ایجاد DOM و لود اولیه داشته باشد
+            // حداقل ۱۲ ثانیه از آخرین فعالیت فرم گذشته باشد تا فرصت لود و ثبت داشته باشد
             const elapsed = Date.now() - (st.autoimport_batch_wait_time || 0);
-            if (elapsed < 30000) return;
+            if (elapsed < 12000) return;
 
             // بررسی آیا تب یا آی‌فریم فرم وارده هنوز در DOM باز است؟
             const isTabOpen = checkIsRegistrationTabOpen();
@@ -946,6 +950,8 @@ async function processNextBatchItem() {
         // ذخیره صف جدید و وضعیت انتظار
         await chrome.storage.local.set({
             autoimport_batch_queue: window.autoImportQueue,
+            autoimport_batch_waiting: true,
+            autoimport_batch_wait_time: Date.now(),
             autoimport_current_run_id: currentRunId
         });
 
@@ -1038,6 +1044,7 @@ async function processNextBatchItem() {
     } catch (err) {
         aiLogger.error('Batch processing error:', err);
         showNotification(`❌ خطا در باز کردن فرم: ${err.message}`, 'error');
+        await chrome.storage.local.set({ autoimport_batch_waiting: false });
         window.isBatchProcessing = false;
     } finally {
         window.batchIsBusy = false;
@@ -1189,9 +1196,10 @@ async function enrichWithOCR(baseData) {
     // بستن خودکار / سیگنال batch بعد از اتمام (مشابه startFormAutoImport)
     const settings = await chrome.storage.local.get(['autoimport_autoclose']);
     if (settings.autoimport_autoclose) {
+        await handleAutoCloseTab();
+        await sleep(1000);
         await chrome.storage.local.set({ autoimport_batch_next: Date.now(), autoimport_batch_waiting: false });
         try { chrome.runtime.sendMessage({ action: 'batchNextSignal' }); } catch (e) { }
-        await handleAutoCloseTab();
     } else {
         showNotification('✅ نامه ثبت شد. برای ادامه، دکمه زیر را بزنید یا تب را ببندید.', 'info');
         showReviewAndNextButton();
@@ -1567,13 +1575,14 @@ async function startFormAutoImport(eventOrFlag) {
         // بررسی تنظیمات بسته شدن خودکار
         const settings = await chrome.storage.local.get(['autoimport_autoclose']);
         if (settings.autoimport_autoclose) {
-            // حالت خودکار: سیگنال فوری + بستن تب
+            // حالت خودکار: اول بستن تب، سپس سیگنال به نامه بعدی
+            await handleAutoCloseTab();
+            await sleep(1000);
             await chrome.storage.local.set({
                 autoimport_batch_next: Date.now(),
                 autoimport_batch_waiting: false
             });
             try { chrome.runtime.sendMessage({ action: 'batchNextSignal' }); } catch (e) { }
-            await handleAutoCloseTab();
         } else {
             // حالت دستی: سیگنال را موکول به بسته شدن واقعی تب می‌کنیم
             showNotification('✅ نامه ثبت و ارجاع شد. برای ادامه، دکمه زیر را بزنید یا تب را ببندید.', 'info');
@@ -1806,36 +1815,20 @@ function setupRegistrationTabCloseListeners() {
     // window.addEventListener('pagehide', notifyBatchTabClosed);
     // window.addEventListener('unload', notifyBatchTabClosed);
 
-    // اتصال فوری به دکمه بستن تب در فریم والد
+    // اتصال به دکمه بستن تب وارده در فریم والد
     const attachToTabCloseBtn = () => {
         const closeBtn = findTabCloseButton();
-        if (closeBtn) {
-            closeBtn.addEventListener('click', notifyBatchTabClosed, { capture: true, once: true });
+        if (closeBtn && !closeBtn._aiCloseListenerAttached) {
+            closeBtn._aiCloseListenerAttached = true;
+            closeBtn.addEventListener('click', () => {
+                setTimeout(notifyBatchTabClosed, 400);
+            }, { once: true });
             aiLogger.info('Attached early close listener to tab close button.');
         }
     };
     attachToTabCloseBtn();
     setTimeout(attachToTabCloseBtn, 1000);
     setTimeout(attachToTabCloseBtn, 2500);
-
-    // شنود کلیک روی دکمه‌های بستن در اسناد والد
-    const docs = [];
-    try { if (window.parent && window.parent.document) docs.push(window.parent.document); } catch (e) { }
-    try { if (window.top && window.top.document && window.top !== window.parent) docs.push(window.top.document); } catch (e) { }
-
-    for (const doc of docs) {
-        try {
-            doc.addEventListener('click', (e) => {
-                const btn = e.target.closest('button.close, .close, .TabClose, [class*="close" i], [class*="TabClose"], [onclick*="close" i], [title*="بستن"], [id^="btn-"]');
-                if (!btn) return;
-                const tab = btn.closest('li, div, a');
-                const text = tab ? (tab.textContent || '') : '';
-                if (text.includes('وارده') || text.includes('سند') || !text.includes('دریافت')) {
-                    notifyBatchTabClosed();
-                }
-            }, { capture: true });
-        } catch (e) { }
-    }
 }
 
 // --- پیدا کردن دکمه بستن تب وارده (بدون کلیک کردن) ---
@@ -1890,21 +1883,21 @@ async function handleAutoCloseTab(force = false) {
         const settings = await chrome.storage.local.get(['autoimport_autoclose']);
         if (force || settings.autoimport_autoclose) {
             aiLogger.info(`Attempting to close registration tab (force=${force})...`);
+            await sleep(600);
             const closeBtn = findTabCloseButton();
             if (closeBtn) {
-                aiLogger.info('Registration tab close button found! Clicking in 1.2s...');
-                setTimeout(() => {
-                    try {
-                        closeBtn.click();
-                        closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window.top }));
-                    } catch (err) {
-                        aiLogger.warn('Error clicking close button:', err);
-                    }
-                }, 1200);
+                aiLogger.info('Registration tab close button found! Clicking now...');
+                try {
+                    closeBtn.click();
+                    closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window.top }));
+                } catch (err) {
+                    aiLogger.warn('Error clicking close button:', err);
+                }
             } else {
                 aiLogger.warn('Could not find registration tab close button. Trying window.close()...');
                 try { window.close(); } catch (e) { }
             }
+            await sleep(800);
         } else {
             aiLogger.info('Auto-close setting is OFF.');
         }
@@ -3039,12 +3032,13 @@ function showReviewAndNextButton() {
 
     document.getElementById('ai-btn-proceed-next')?.addEventListener('click', async () => {
         showNotification('در حال انتقال به نامه بعدی...', 'info');
+        await handleAutoCloseTab(true); // بستن اجباری تب پس از تایید دستی
+        await sleep(1000);
         await chrome.storage.local.set({
             autoimport_batch_next: Date.now(),
             autoimport_batch_waiting: false
         });
         try { chrome.runtime.sendMessage({ action: 'batchNextSignal' }); } catch (e) { }
-        await handleAutoCloseTab(true); // بستن اجباری تب پس از تایید دستی
     });
 }
 
@@ -3057,7 +3051,7 @@ function showBatchPanel(total) {
     panel.innerHTML = `
         <div class="ai-panel-header">
             <span>🤖 وضعیت ثبت گروهی</span>
-            <button onclick="this.closest('#ai-batch-panel').remove()">✕</button>
+            <button id="ai-batch-close-x" style="background:transparent; border:none; color:#fff; font-size:16px; cursor:pointer; padding:0 4px;">✕</button>
         </div>
         <div class="ai-panel-body" style="text-align:center;">
             <div id="ai-batch-status" style="margin-bottom:10px; font-weight:bold; color:#1e40af;">وضعیت: در حال پردازش...</div>
@@ -3078,6 +3072,8 @@ function showBatchPanel(total) {
         </div>`;
     document.body.appendChild(panel);
     makeDraggable(panel, panel.querySelector('.ai-panel-header'));
+
+    panel.querySelector('#ai-batch-close-x')?.addEventListener('click', () => panel.remove());
 
     const pauseBtn = document.getElementById('ai-batch-pause-btn');
     if (pauseBtn) {

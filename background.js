@@ -184,7 +184,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
         const isFormTab = (tabId === activeRegistrationTabId);
         const stored = await chrome.storage.local.get(['autoimport_batch_active', 'autoimport_batch_waiting']);
         
-        if (stored.autoimport_batch_active && stored.autoimport_batch_waiting && (isFormTab || !activeRegistrationTabId)) {
+        if (stored.autoimport_batch_active && stored.autoimport_batch_waiting && isFormTab && activeRegistrationTabId) {
             logger.info(`Tab ${tabId} was closed (form tab: ${isFormTab}). Clearing wait state and advancing batch queue...`);
             activeRegistrationTabId = null;
             await chrome.storage.local.set({
