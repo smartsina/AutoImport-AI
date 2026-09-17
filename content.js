@@ -28,11 +28,23 @@ function isEmailListPage() {
               document.querySelector('table.EmailGeneralFarsiTable2'));
 }
 
+function isRegistrationFormPage() {
+    if (document.getElementById('ulSave') || document.getElementById('ulSend') || document.getElementById('txtImportOriginNO')) return true;
+    return !!(
+        document.querySelector('[id$="ulSave"], [id*="ulSave"]') ||
+        document.querySelector('[id$="ulSend"], [id*="ulSend"]') ||
+        document.querySelector('[id$="txtImportOriginNO"], [id*="txtImportOriginNO"]') ||
+        document.querySelector('[name$="txtImportOriginNO"], [name*="txtImportOriginNO"]') ||
+        document.querySelector('[id$="txtImportDesc"], [id*="txtImportDesc"]') ||
+        document.querySelector('[id$="Receiver_tbxAutocomplete"], [id*="Receiver_tbxAutocomplete"]') ||
+        document.querySelector('[id$="txtSubject_tbxAutocomplete"], [id*="txtSubject_tbxAutocomplete"]')
+    );
+}
+
 // ===================================================
 // ۱. تشخیص نوع صفحه و تزریق مناسب
 // ===================================================
 function detectPageAndInject() {
-    if (window.self !== window.top && !isEmailListPage() && !document.getElementById('ulSave') && !document.getElementById('ulSend') && !document.getElementById('txtImportOriginNO')) return;
     // صفحه لیست ایمیل (صندوق ورودی)
     if (isEmailListPage()) {
         injectEmailListButton();
@@ -100,9 +112,9 @@ function detectPageAndInject() {
     }
 
     // صفحه فرم وارده (ثبت نامه)
-    if (document.getElementById('ulSave') || document.getElementById('ulSend') ||
-        document.getElementById('txtImportOriginNO')) {
-        
+    if (isRegistrationFormPage()) {
+        injectImportFormButton();
+
         // جلوگیری از اجرای مکرر فرم بخاطر MutationObserver
         if (window._formStateInitialized) return;
         window._formStateInitialized = true;
@@ -110,7 +122,6 @@ function detectPageAndInject() {
         // شنوندگان زودهنگام بستن دستی پنجره/تب برای عدم توقف صف ثبت جمعی
         setupRegistrationTabCloseListeners();
 
-        injectImportFormButton();
         checkAndAutoFillFromStorage();
 
         // چک کردن برای حالت ثبت گروهی (Batch)
@@ -1105,13 +1116,15 @@ function tryClickImportDocButton(row) {
 function injectImportFormButton() {
     if (document.getElementById('ai-importform-btn')) return;
 
-    const saveBtn = document.getElementById('ulSave') || document.getElementById('ulSend');
+    const saveBtn = document.getElementById('ulSave') || document.getElementById('ulSend') ||
+                    document.querySelector('[id$="ulSave"], [id*="ulSave"]') ||
+                    document.querySelector('[id$="ulSend"], [id*="ulSend"]');
     if (!saveBtn) return;
 
     const toolbar = saveBtn.closest('tr') || saveBtn.closest('td') || saveBtn.parentElement;
     if (!toolbar) return;
 
-    const btnCell = document.createElement('td');
+    const btnCell = (toolbar.tagName === 'TR') ? document.createElement('td') : document.createElement('span');
     btnCell.innerHTML = buildButtonHTML('ثبت هوشمند');
     btnCell.id = 'ai-importform-btn';
     toolbar.insertBefore(btnCell, toolbar.firstChild);
@@ -1372,6 +1385,12 @@ async function extractAndAnalyzeFiles(letterData) {
                     if (combinedText) {
                         letterData.description = (letterData.description || '') + '\n\nمتن استخراج شده:\n' + combinedText;
                     }
+                    if (!letterData.originNo && (aiPromptText || combinedText)) {
+                        letterData.originNo = extractHeaderOriginNo(aiPromptText || combinedText);
+                    }
+                    if (!letterData.originDate && (aiPromptText || combinedText)) {
+                        letterData.originDate = extractDateFromText(aiPromptText || combinedText);
+                    }
                     analysisSuccess = true;
                     showExtractedData(letterData, validFiles.map(f => f.label).join(', '));
                     updatePanelStep(3, 'done', `آنالیز هوش مصنوعی کامل شد ✓ (شماره: ${letterData.originNo || '-'})`);
@@ -1379,9 +1398,20 @@ async function extractAndAnalyzeFiles(letterData) {
                     if (combinedText) {
                         letterData.description = (letterData.description || '') + '\n\nمتن استخراج شده:\n' + combinedText;
                     }
+                    const fallbackText = aiPromptText || combinedText || '';
+                    if (fallbackText) {
+                        const fallbackOriginNo = extractHeaderOriginNo(fallbackText) || letterData.originNo || '';
+                        const fallbackDate = extractDateFromText(fallbackText) || letterData.originDate || null;
+                        if (fallbackOriginNo) letterData.originNo = fallbackOriginNo;
+                        if (fallbackDate) letterData.originDate = fallbackDate;
+                        if (fallbackOriginNo || fallbackDate) {
+                            aiLogger.info('✅ استخراج اضطراری شماره و تاریخ نامه از متن OCR با ریجکس کلاینت:', { fallbackOriginNo, fallbackDate });
+                            analysisSuccess = true;
+                        }
+                    }
                     const errMsg = (ocrRes && ocrRes.error) || 'عدم پاسخ یا تایم‌اوت مدل محلی LM Studio';
                     aiLogger.warn('ocrAndAnalyzeLetter failed:', errMsg);
-                    updatePanelStep(3, 'error', `خطای هوش مصنوعی: ${errMsg}`);
+                    updatePanelStep(3, analysisSuccess ? 'done' : 'error', analysisSuccess ? `استخراج با ریجکس انجام شد ✓ (شماره: ${letterData.originNo || '-'})` : `خطای هوش مصنوعی: ${errMsg}`);
                 }
             } else {
                 updatePanelStep(3, 'error', `هیچ فایلی با موفقیت دانلود و تبدیل نشد.`);
@@ -1436,7 +1466,6 @@ async function startFormAutoImport(eventOrFlag) {
             aiLogger.info('Auto import already ran in this tab session for runId: ' + runId + '. Skipping to prevent loop.');
             return;
         }
-        sessionStorage.setItem(sessionKey, 'true');
     }
 
     isProcessing = true;
@@ -1527,6 +1556,43 @@ async function startFormAutoImport(eventOrFlag) {
             check = validateRequiredFields();
         }
 
+        // تلاش اضطراری برای پر کردن فیلدهای خالی قبل از تسلیم شدن
+        if (!check.isValid) {
+            if (!check.hasSender) {
+                const sFallback = letterData.sender || letterData.senderEmail || existingData.sender || existingData.senderEmail || 'نامشخص';
+                const el = findFieldEl('Sender_tbxAutocomplete');
+                if (el) {
+                    setVal(el, sFallback);
+                    aiLogger.info('✅ پر کردن اضطراری فرستنده:', sFallback);
+                }
+            }
+            if (!check.hasSubject) {
+                const subFallback = letterData.subject || existingData.subject || 'نامه وارده';
+                const el = findFieldEl('txtSubject_tbxAutocomplete');
+                if (el) {
+                    setVal(el, subFallback);
+                    aiLogger.info('✅ پر کردن اضطراری موضوع:', subFallback);
+                }
+            }
+            if (!check.hasOriginNo) {
+                const rawFallback = letterData.rawText || existingData.rawText || letterData.description || '';
+                if (rawFallback) {
+                    const noFallback = extractHeaderOriginNo(rawFallback);
+                    if (noFallback) {
+                        const el = findFieldEl('txtImportOriginNO');
+                        if (el) {
+                            el.setAttribute('dir', 'ltr');
+                            el.style.direction = 'ltr';
+                            el.style.textAlign = 'left';
+                            setVal(el, noFallback);
+                            aiLogger.info('✅ پر کردن اضطراری شماره نامه:', noFallback);
+                        }
+                    }
+                }
+            }
+            check = validateRequiredFields();
+        }
+
         // 🛑 اگر پس از تلاش مجدد همچنان موضوع یا شماره خالی باشد: ارجاع نده!
         if (!check.isValid) {
             const missing = [];
@@ -1571,6 +1637,7 @@ async function startFormAutoImport(eventOrFlag) {
         await clickSendAndHandle(refName);
         updatePanelStep(5, 'done', 'نامه ارجاع داده شد ✓');
         showNotification('✅ نامه با موفقیت ثبت و ارجاع داده شد', 'success');
+        sessionStorage.setItem(sessionKey, 'true');
 
         // بررسی تنظیمات بسته شدن خودکار
         const settings = await chrome.storage.local.get(['autoimport_autoclose']);
@@ -1621,6 +1688,7 @@ async function startFormAutoImport(eventOrFlag) {
         }
 
     } catch (err) {
+        sessionStorage.removeItem(sessionKey);
         aiLogger.error('startFormAutoImport error:', err);
         showNotification('❌ خطا: ' + err.message, 'error');
         updateCurrentStepError(err.message);
@@ -1641,16 +1709,18 @@ async function startFormAutoImport(eventOrFlag) {
 function findFieldEl(id) {
     if (!id) return null;
     let el = document.getElementById(id);
-    if (el) return el;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return el;
     for (const doc of allDocs()) {
         try {
             el = doc.getElementById(id);
-            if (el) return el;
-            el = doc.querySelector(`[id$="${id}"], [id*="${id}"], [name$="${id}"], [name*="${id}"]`);
+            if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return el;
+            el = doc.querySelector(`input[id$="${id}"], textarea[id$="${id}"], select[id$="${id}"], input[name$="${id}"], textarea[name$="${id}"], select[name$="${id}"]`) ||
+                 doc.querySelector(`input[id*="${id}"], textarea[id*="${id}"], select[id*="${id}"], input[name*="${id}"], textarea[name*="${id}"], select[name*="${id}"]`) ||
+                 doc.querySelector(`[id$="${id}"], [id*="${id}"], [name$="${id}"], [name*="${id}"]`);
             if (el) return el;
         } catch (e) { }
     }
-    return null;
+    return el || null;
 }
 
 function findDateFields() {
@@ -1910,6 +1980,17 @@ async function handleAutoCloseTab(force = false) {
 // ۴. پر کردن فیلدهای فرم
 // ===================================================
 async function fillFormFields(data) {
+    if (!data) return;
+
+    // بازیابی شماره نامه از متن در صورتی که خالی باشد
+    if (!data.originNo && (data.rawText || data.description)) {
+        const extractedNo = extractHeaderOriginNo(data.rawText || data.description);
+        if (extractedNo) {
+            data.originNo = extractedNo;
+            aiLogger.info('✅ شماره نامه در fillFormFields با ریجکس بازیابی شد:', extractedNo);
+        }
+    }
+
     // شماره اولیه مدرک (کاملاً انگلیسی و چپ‌به‌راست بدون چرخش در مرورگر)
     if (data.originNo) {
         const el = findFieldEl('txtImportOriginNO');
@@ -1931,6 +2012,11 @@ async function fillFormFields(data) {
 
     // تاریخ اولیه مدرک (چپ‌به‌راست و ارقام انگلیسی)
     let dateToSet = data.originDate;
+    if (!dateToSet || (!dateToSet.day && !dateToSet.month && !dateToSet.year)) {
+        if (data.rawText || data.description) {
+            dateToSet = extractDateFromText(data.rawText || data.description);
+        }
+    }
     if (!dateToSet || (!dateToSet.day && !dateToSet.month && !dateToSet.year)) {
         const curJalali = getCurrentJalaliDate();
         aiLogger.warn('⚠️ تاریخ در اطلاعات استخراج‌شده یافت نشد. استفاده از تاریخ رسمی امروز سیستم به عنوان پیش‌فرض:', curJalali);
@@ -2011,7 +2097,7 @@ async function fillFormFields(data) {
     aiLogger.info('✅ تاریخ نامه ثبت شد:', `${day}/${month}/${year}`);
 
     // فرستنده
-    const senderName = data.sender || '';
+    const senderName = data.sender || data.senderEmail || '';
     if (senderName) {
         const el = findFieldEl('Sender_tbxAutocomplete');
         if (el) {
@@ -2030,11 +2116,12 @@ async function fillFormFields(data) {
     await setReceiverField();
 
     // موضوع
-    if (data.subject) {
+    const subjectName = data.subject || 'نامه وارده';
+    if (subjectName) {
         const el = findFieldEl('txtSubject_tbxAutocomplete');
         if (el) {
-            setVal(el, data.subject);
-            aiLogger.info('✅ موضوع ثبت شد:', data.subject);
+            setVal(el, subjectName);
+            aiLogger.info('✅ موضوع ثبت شد:', subjectName);
         }
     }
 
@@ -2877,6 +2964,15 @@ function parsePersianDateString(raw) {
     let numD = parseInt(d, 10);
     if (numY >= 1200 && numY <= 1299) numY = (numY + 200) % 100;
     else if (numY >= 1300) numY = numY % 100;
+
+    // اصلاح خطای وارونگی ارقام روز در OCR (مانند 32 که معکوس 23 است)
+    if (numD > 31 && String(d).length === 2) {
+        const revD = parseInt(String(d).split('').reverse().join(''), 10);
+        if (revD >= 1 && revD <= 31) {
+            numD = revD;
+        }
+    }
+
     if (numY > 10 && numD <= 9) {
         let tmp = numD; numD = numY; numY = tmp;
     }
@@ -2899,6 +2995,174 @@ function parsePersianDateString(raw) {
         year: String(numY).padStart(2, '0')
     };
     return ensureValidPastOrPresentDate(candidate, curJalali);
+}
+
+// --- استخراج مستقیم شماره رسمی نامه از هدر سند (<PRIMARY_DOCUMENT_HEADER>) ---
+function extractHeaderOriginNo(rawText) {
+    if (!rawText) return '';
+    const enRaw = toEnglishDigits(rawText);
+    let headerSection = '';
+    const headerMatch = enRaw.match(/<PRIMARY_DOCUMENT_HEADER>([\s\S]*?)<\/PRIMARY_DOCUMENT_HEADER>/i);
+    if (headerMatch) headerSection = headerMatch[1];
+
+    if (headerSection.includes('دریافت شده در این صندوق') || headerSection.includes('سرور پست الکترونیکی') || headerSection.includes('EmailLayout')) {
+        headerSection = '';
+    }
+
+    const lines = (headerSection ? headerSection.split('\n') : enRaw.split('\n'))
+        .map(l => l.replace(/<\/?PRIMARY_DOCUMENT_HEADER>/gi, '').trim()).filter(Boolean);
+
+    // ۱. کدهای اداری اسلش‌دار حاوی سال شمسی 140x یا 40x در هدر
+    for (let i = 0; i < Math.min(lines.length, 30); i++) {
+        const line = lines[i];
+        if (isDateString(line) || line.includes('تاريخ') || line.includes('تاریخ') || line.includes('پرونده') || line.includes('بایگانی')) continue;
+        if (line.includes('تصویر نامه') || line.includes('پیوست تصویر') || line.includes('عطف به') || line.includes('پیرو') || line.includes('بازگشت به')) continue;
+        const codeMatch = line.match(/\b((?:140[0-9]|40[0-9]|[a-zA-Z\u0600-\u06FF0-9]{1,10})(?:[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10}){2,6})\b/) ||
+                          line.match(/\b([a-zA-Z\u0600-\u06FF0-9]{1,6}[\/\-](?:140[0-9]|40[0-9])[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10})\b/) ||
+                          line.match(/\b((?:140[0-9]|40[0-9])[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,10}[\/\-][a-zA-Z\u0600-\u06FF0-9]{1,6})\b/);
+        if (codeMatch) {
+            let norm = normalizeLetterNumber(codeMatch[1]);
+            let adjacentSuffix = '';
+            if (i > 0 && /^[صاحالف]$/.test(lines[i - 1].trim())) {
+                adjacentSuffix = lines[i - 1].trim();
+            } else if (i + 1 < lines.length && /^[صاحالف]$/.test(lines[i + 1].trim())) {
+                adjacentSuffix = lines[i + 1].trim();
+            }
+            if (adjacentSuffix && !norm.endsWith(adjacentSuffix)) {
+                norm += '/' + adjacentSuffix;
+            }
+            if (norm && isValidOriginNoCandidate(norm)) return norm;
+        }
+    }
+
+    // ۲. کدهای طولانی پیوسته قضایی/ثنا در هدر (۱۵ تا ۲۰ رقم)
+    for (let i = 0; i < Math.min(lines.length, 30); i++) {
+        const line = lines[i];
+        if (isDateString(line) || line.includes('تاريخ') || line.includes('تاریخ') || line.includes('پرونده') || line.includes('بایگانی')) continue;
+        const longNumMatch = line.match(/\b(1[24]0\d{12,16})\b/);
+        if (longNumMatch) {
+            const norm = normalizeLetterNumber(longNumMatch[1]);
+            if (norm && isValidOriginNoCandidate(norm)) return norm;
+        }
+    }
+
+    // ۳. خط دارای برچسب صریح "شماره نامه" یا "شماره:"
+    for (let i = 0; i < Math.min(lines.length, 35); i++) {
+        const line = lines[i];
+        if (line.includes('پرونده') || line.includes('بایگانی') || line.includes('پلاک') || line.includes('کلاسه')) continue;
+        if (line.includes('تصویر نامه') || line.includes('پیوست تصویر') || line.includes('عطف به') || line.includes('پیرو') || line.includes('بازگشت به') || line.includes('منضم')) continue;
+        if (i > 0 && (lines[i - 1].includes('پیوست تصویر') || lines[i - 1].includes('تصویر نامه') || lines[i - 1].includes('عطف به') || lines[i - 1].includes('پیرو نامه') || lines[i - 1].includes('بازگشت به'))) continue;
+        const match = line.match(/(?:شماره\s*نامه|شماره\s*صادره|شماره\s*وارده|شماره\s*مدرک|letter\s*no\.?|شماره|ثماره|no\.?)\s*[:؛-]?\s*([^\n\r]+)/i);
+        if (match) {
+            let cand = match[1].trim();
+            if (cand && !cand.startsWith('شماره') && isValidOriginNoCandidate(cand)) {
+                const norm = normalizeLetterNumber(cand);
+                if (norm && isValidOriginNoCandidate(norm)) return norm;
+            }
+        }
+    }
+
+    // ۴. شماره‌های معکوس مانند 0663/5041/ف ا یا 5041/0663/ف ا
+    for (let i = 0; i < Math.min(lines.length, 25); i++) {
+        const line = lines[i];
+        if (isDateString(line) || line.includes('تاريخ') || line.includes('تاریخ')) continue;
+        const revMatch = line.match(/(\d{2,7})[\/\\](50[345]1)[\/\\]([a-zA-Z\u0600-\u06FF\s]+)/) ||
+                         line.match(/(50[345]1)[\/\\](\d{2,7})[\/\\]([a-zA-Z\u0600-\u06FF\s]+)/);
+        if (revMatch) {
+            const yr = (revMatch[2] === '5041' || revMatch[1] === '5041' ? '1405' : '1404');
+            const ser = (revMatch[1] === '5041' ? revMatch[2] : revMatch[1]).split('').reverse().join('');
+            const suf = revMatch[3].trim();
+            const norm = normalizeLetterNumber(`${yr}/${ser}/${suf}`);
+            if (norm && isValidOriginNoCandidate(norm)) return norm;
+        }
+    }
+
+    return '';
+}
+
+// --- استخراج تاریخ معتبر از متن هدر سند ---
+function extractDateFromText(rawText) {
+    if (!rawText) return null;
+    const enText = toEnglishDigits(rawText);
+
+    let headerText = '';
+    const headerMatch = enText.match(/<PRIMARY_DOCUMENT_HEADER>([\s\S]*?)<\/PRIMARY_DOCUMENT_HEADER>/i);
+    if (headerMatch) headerText = headerMatch[1];
+
+    if (headerText.includes('دریافت شده در این صندوق') || headerText.includes('سرور پست الکترونیکی') || headerText.includes('EmailLayout')) {
+        headerText = '';
+    }
+
+    const searchLinesForDate = (lines) => {
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.includes('تاريخ') || line.includes('تاریخ') || line.toLowerCase().includes('date')) {
+                const m = line.match(/(?:1[234]0\d)\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(\d{1,2})\b/) ||
+                          line.match(/(\d{1,2})\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(?:1[234]0\d)\b/) ||
+                          line.match(/(?:1[234]0\d|\d{2})\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(\d{1,2})\b/);
+                if (m) {
+                    const parsed = parsePersianDateString(m[0]);
+                    if (parsed) return parsed;
+                }
+
+                for (let j = 1; j <= 5; j++) {
+                    if (i + j < lines.length) {
+                        const nextLine = lines[i + j];
+                        const nextM = nextLine.match(/^(?:1[234]0\d)\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(\d{1,2})$/) ||
+                                      nextLine.match(/^(\d{1,2})\s*[\/\-\.]\s*(?:0?[1-9]|1[0-2])\s*[\/\-\.]\s*(?:1[234]0\d)$/);
+                        if (nextM) {
+                            const parsed = parsePersianDateString(nextM[0]);
+                            if (parsed) return parsed;
+                        }
+                    }
+                }
+            }
+        }
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const m = line.match(/\b(1[234]0\d)\s*[\/\-\.]\s*(0?[1-9]|1[0-2])\s*[\/\-\.]\s*(\d{1,2})\b/) ||
+                      line.match(/\b(\d{1,2})\s*[\/\-\.]\s*(0?[1-9]|1[0-2])\s*[\/\-\.]\s*(1[234]0\d)\b/);
+            if (m) {
+                const parsed = parsePersianDateString(m[0]);
+                if (parsed) return parsed;
+            }
+        }
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const revDateMatch = line.match(/\b(\d{1,2})\s*[\/\-\.]\s*(0?[1-9]|60)\s*[\/\-\.]\s*(50[345]1)\b/);
+            if (revDateMatch) {
+                const d = revDateMatch[1].padStart(2, '0');
+                const m = revDateMatch[2] === '60' ? '06' : revDateMatch[2].padStart(2, '0');
+                const y = revDateMatch[3] === '5041' ? '05' : '04';
+                return { day: d, month: m, year: y };
+            }
+        }
+
+        return null;
+    };
+
+    if (headerText) {
+        const hLines = headerText.split('\n').map(l => l.trim()).filter(Boolean);
+        const res = searchLinesForDate(hLines);
+        if (res) return res;
+    }
+
+    const allLines = enText.split('\n').map(l => l.trim()).filter(Boolean);
+    const topLines = allLines.slice(0, 35);
+    const res = searchLinesForDate(topLines);
+    if (res) return res;
+    const resAll = searchLinesForDate(allLines);
+    if (resAll) return resAll;
+
+    const movarekhMatch = enText.match(/مورخ\s*[:؛-]?\s*(1[234]0\d)\s*[\/\-\.]\s*(0?[1-9]|1[0-2])\s*[\/\-\.]\s*(\d{1,2})/);
+    if (movarekhMatch) {
+        const parsed = parsePersianDateString(movarekhMatch[0].replace(/مورخ\s*[:؛-]?\s*/, ''));
+        if (parsed) return parsed;
+    }
+
+    return null;
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }

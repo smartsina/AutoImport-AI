@@ -744,11 +744,38 @@ async function handleOcrAndAnalyzeMultiple(payload, sendResponse) {
         }
 
         logger.info('✅ Multiple files OCR complete. Total text length:', truncatedText.length);
-        const structured = await analyzeTextOnly(truncatedText, payload.baseData || {});
+        let structured = null;
+        try {
+            structured = await analyzeTextOnly(truncatedText, payload.baseData || {});
+        } catch (llmErr) {
+            logger.warn('handleOcrAndAnalyzeMultiple: analyzeTextOnly failed:', llmErr.message);
+        }
         
         if (!structured) {
-            sendResponse({ success: false, error: 'خطا در آنالیز ساختار نامه' });
-            return;
+            logger.warn('LLM failed in multi-file; using regex fallback from extracted text...');
+            const fallbackOriginNo = extractHeaderOriginNo(allExtractedText) || payload.baseData?.originNo || '';
+            const fallbackDate = extractDateFromText(allExtractedText) || payload.baseData?.originDate || null;
+            structured = {
+                originNo: fallbackOriginNo,
+                originDate: fallbackDate,
+                sender: payload.baseData?.sender || '',
+                senderEmail: payload.baseData?.senderEmail || '',
+                subject: payload.baseData?.subject || '',
+                description: allExtractedText ? allExtractedText.substring(0, 1500) : '',
+                keywords: ''
+            };
+        } else {
+            if (!structured.originNo) {
+                const fallbackOriginNo = extractHeaderOriginNo(allExtractedText) || payload.baseData?.originNo || '';
+                if (fallbackOriginNo) structured.originNo = fallbackOriginNo;
+            }
+            if (!structured.originDate || (!structured.originDate.day && !structured.originDate.month && !structured.originDate.year)) {
+                const fallbackDate = extractDateFromText(allExtractedText) || payload.baseData?.originDate || null;
+                if (fallbackDate) structured.originDate = fallbackDate;
+            }
+            if (!structured.subject && payload.baseData?.subject) structured.subject = payload.baseData.subject;
+            if (!structured.sender && payload.baseData?.sender) structured.sender = payload.baseData.sender;
+            if (!structured.senderEmail && payload.baseData?.senderEmail) structured.senderEmail = payload.baseData.senderEmail;
         }
         
         structured.rawText = allExtractedText;
@@ -843,6 +870,8 @@ async function handleOcrAndAnalyze(payload, sendResponse) {
         let structured = null;
         try {
             structured = await analyzeTextOnly(rawText, payload.baseData);
+        } catch (llmErr) {
+            logger.warn('analyzeTextOnly exception, will use heuristic fallback:', llmErr.message);
         } finally {
             clearInterval(keepAliveTimer);
         }
@@ -850,8 +879,43 @@ async function handleOcrAndAnalyze(payload, sendResponse) {
         logger.info('RAW STRUCTURED OUTPUT FROM LLM:', JSON.stringify(structured, null, 2));
         
         if (!structured) {
-            sendResponse({ success: false, error: 'خطا در آنالیز ساختار نامه' });
-            return;
+            logger.warn('LLM failed or returned null; using regex extraction fallback from rawText...');
+            const fallbackOriginNo = extractHeaderOriginNo(rawText) || payload.baseData?.originNo || '';
+            const fallbackDate = extractDateFromText(rawText) || payload.baseData?.originDate || null;
+            structured = {
+                originNo: fallbackOriginNo,
+                originDate: fallbackDate,
+                sender: payload.baseData?.sender || '',
+                senderEmail: payload.baseData?.senderEmail || '',
+                subject: payload.baseData?.subject || '',
+                description: rawText ? rawText.substring(0, 1500) : '',
+                keywords: ''
+            };
+        } else {
+            // اطمینان از پر بودن فیلدهای حیاتی با ریجکس در صورت خالی بودن در پاسخ LLM
+            if (!structured.originNo) {
+                const fallbackOriginNo = extractHeaderOriginNo(rawText) || payload.baseData?.originNo || '';
+                if (fallbackOriginNo) {
+                    logger.info(`🔄 تکمیل شماره نامه از هدر با ریجکس: ${fallbackOriginNo}`);
+                    structured.originNo = fallbackOriginNo;
+                }
+            }
+            if (!structured.originDate || (!structured.originDate.day && !structured.originDate.month && !structured.originDate.year)) {
+                const fallbackDate = extractDateFromText(rawText) || payload.baseData?.originDate || null;
+                if (fallbackDate) {
+                    logger.info(`🔄 تکمیل تاریخ نامه از هدر با ریجکس: ${fallbackDate.year}/${fallbackDate.month}/${fallbackDate.day}`);
+                    structured.originDate = fallbackDate;
+                }
+            }
+            if (!structured.subject && payload.baseData?.subject) {
+                structured.subject = payload.baseData.subject;
+            }
+            if (!structured.sender && payload.baseData?.sender) {
+                structured.sender = payload.baseData.sender;
+            }
+            if (!structured.senderEmail && payload.baseData?.senderEmail) {
+                structured.senderEmail = payload.baseData.senderEmail;
+            }
         }
 
         structured.rawText = rawText; // ارسال متن کامل به کلاینت برای فیلد توضیحات
