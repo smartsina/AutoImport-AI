@@ -1924,63 +1924,83 @@ function setupRegistrationTabCloseListeners() {
     setTimeout(attachToTabCloseBtn, 2500);
 }
 
-// --- پیدا کردن دکمه بستن تب وارده (بدون کلیک کردن) ---
-function findTabCloseButton() {
-    for (const doc of allDocs()) {
+// --- پیدا کردن مشخصات دقیق تب ثبت وارده در فرزین ---
+function findRegistrationTabInfo() {
+    const docsToSearch = [];
+    try { if (window.top && window.top.document) docsToSearch.push(window.top.document); } catch (e) { }
+    try { if (window.parent && window.parent.document && !docsToSearch.includes(window.parent.document)) docsToSearch.push(window.parent.document); } catch (e) { }
+    try { if (document && !docsToSearch.includes(document)) docsToSearch.push(document); } catch (e) { }
+    for (const d of allDocs()) {
+        if (!docsToSearch.includes(d)) docsToSearch.push(d);
+    }
+
+    for (const doc of docsToSearch) {
         if (!doc) continue;
         try {
-            // استراتژی ۰: تب فعال جاری (Selected / Active Tab) به جز صندوق دریافت
-            const activeTabs = Array.from(doc.querySelectorAll('li.TabItemActive, li.selected, li.active, .tab-item.active, [class*="TabItem"][class*="Active"], [class*="TabItem"][class*="selected"]'));
-            for (const at of activeTabs) {
-                const atText = (at.textContent || '').replace(/\s+/g, ' ').trim();
-                if (!atText.includes('دريافت') && !atText.includes('دریافت') && !atText.includes('صندوق')) {
-                    const closeBtn = at.querySelector('button.close, .close, .tab-close, .TabClose, [class*="close" i], [title*="بستن"]');
-                    if (closeBtn) return closeBtn;
+            // ۱. جستجوی دقیق li تب ثبت وارده بر اساس servicename، title و متن
+            const candidateTabs = Array.from(doc.querySelectorAll('li[id^="TabItem"], li[tabid], li.TabItemActive, li.active, .tab-item'));
+            
+            for (const li of candidateTabs) {
+                const serviceName = li.getAttribute('servicename') || '';
+                const title = li.getAttribute('title') || '';
+                const text = (li.textContent || '').replace(/\s+/g, ' ').trim();
+
+                const isRegistrationTab = 
+                    serviceName.includes('ثبت وارده') || 
+                    title.includes('ثبت وارده') || 
+                    text.includes('ثبت وارده') ||
+                    (serviceName.includes('وارده') && !serviceName.includes('صندوق') && !serviceName.includes('دریافت') && !serviceName.includes('دريافت')) ||
+                    (title.includes('وارده') && !title.includes('صندوق') && !title.includes('دریافت') && !title.includes('دريافت')) ||
+                    (text.includes('وارده') && !text.includes('صندوق') && !text.includes('دریافت') && !text.includes('دريافت'));
+
+                if (isRegistrationTab) {
+                    const tabId = li.getAttribute('tabid') || (li.id ? li.id.replace('TabItem', '') : '');
+                    let closeBtn = null;
+                    if (tabId) {
+                        closeBtn = doc.getElementById('btn-' + tabId) || li.querySelector('#btn-' + tabId);
+                    }
+                    if (!closeBtn) {
+                        closeBtn = li.querySelector('button.close, [id^="btn-"].close, button[id^="btn-"], .close');
+                    }
+                    if (closeBtn) {
+                        return { tabLi: li, closeBtn, tabId, doc };
+                    }
                 }
             }
 
-            // استراتژی ۱: پیدا کردن تب‌های شامل کلمه "وارده" یا "ثبت" یا "سند"
-            const tabItems = Array.from(doc.querySelectorAll('li[id^="TabItem"], div[id^="TabItem"], .tab-item'));
-            for (const tab of tabItems) {
-                const tabText = (tab.textContent || '').replace(/\s+/g, ' ').trim();
-                if ((tabText.includes('وارده') || tabText.includes('ثبت') || tabText.includes('سند')) &&
-                    !tabText.includes('دريافت') && !tabText.includes('دریافت') && !tabText.includes('صندوق')) {
-                    const closeBtn = tab.querySelector('.close, .tab-close, .TabClose, [class*="close" i], [title*="بستن"]');
-                    if (closeBtn) return closeBtn;
+            // ۲. اگر با نام پیدا نشد، تب فعال جاری (active) که صندوق دریافت نیست
+            for (const li of candidateTabs) {
+                if (li.classList.contains('active') || li.classList.contains('selected') || li.classList.contains('TabItemActive')) {
+                    const text = (li.textContent || '').replace(/\s+/g, ' ').trim();
+                    const serviceName = li.getAttribute('servicename') || '';
+                    if (!text.includes('صندوق') && !text.includes('دریافت') && !text.includes('دريافت') &&
+                        !serviceName.includes('صندوق') && !serviceName.includes('دریافت') && !serviceName.includes('دريافت')) {
+                        const tabId = li.getAttribute('tabid') || (li.id ? li.id.replace('TabItem', '') : '');
+                        let closeBtn = null;
+                        if (tabId) {
+                            closeBtn = doc.getElementById('btn-' + tabId) || li.querySelector('#btn-' + tabId);
+                        }
+                        if (!closeBtn) {
+                            closeBtn = li.querySelector('button.close, [id^="btn-"].close, button[id^="btn-"], .close');
+                        }
+                        if (closeBtn) {
+                            return { tabLi: li, closeBtn, tabId, doc };
+                        }
+                    }
                 }
             }
 
-            // استراتژی ۲: هر تبی که دکمه بستن دارد و صندوق دریافت نیست
-            for (const tab of tabItems) {
-                const tabText = (tab.textContent || '').replace(/\s+/g, ' ').trim();
-                if (!tabText.includes('دريافت') && !tabText.includes('دریافت') && !tabText.includes('صندوق')) {
-                    const closeBtn = tab.querySelector('.close, .tab-close, .TabClose, [class*="close" i], [title*="بستن"]');
-                    if (closeBtn) return closeBtn;
-                }
-            }
-
-            // استراتژی ۳: پیدا کردن دکمه‌های بستن و بررسی والد
-            const closeBtnSelectors = 'button.close, .close, .TabClose, [class*="close" i], [class*="TabClose"], [onclick*="close" i], [onclick*="Close" i], [title*="بستن"], [id^="btn-"]';
-            const allCloseButtons = Array.from(doc.querySelectorAll(closeBtnSelectors));
-            for (const btn of allCloseButtons) {
-                const tabContainer = btn.closest('li, div[id^="TabItem"], a') || btn.parentElement;
-                if (!tabContainer) continue;
-                const tabText = (tabContainer.textContent || '').replace(/\s+/g, ' ').trim();
-                if (!tabText.includes('دريافت') && !tabText.includes('دریافت') && !tabText.includes('صندوق')) {
-                    return btn;
-                }
-            }
-
-            // استراتژی ۴: ID فریم
-            if (window.frameElement) {
-                const frameId = window.frameElement.id || (window.frameElement.parentElement ? window.frameElement.parentElement.id : '');
-                const tabIdMatch = frameId.match(/\d+/);
-                if (tabIdMatch) {
-                    const potentialBtn = doc.getElementById('btn-' + tabIdMatch[0]) ||
-                        doc.querySelector(`[tabid="${tabIdMatch[0]}"] button.close`) ||
-                        doc.querySelector(`[id*="${tabIdMatch[0]}"] ${closeBtnSelectors}`);
-                    if (potentialBtn) {
-                        return potentialBtn;
+            // ۳. اگر تب از طریق li پیدا نشد، جستجوی دکمه‌های با ساختار #btn-[digits] داخل doc
+            const btnCloseList = Array.from(doc.querySelectorAll('button[id^="btn-"].close, button[id^="btn-"]'));
+            for (const btn of btnCloseList) {
+                const parentLi = btn.closest('li');
+                if (parentLi) {
+                    const txt = (parentLi.textContent || '').replace(/\s+/g, ' ').trim();
+                    const sName = parentLi.getAttribute('servicename') || '';
+                    if (!txt.includes('صندوق') && !txt.includes('دریافت') && !txt.includes('دريافت') &&
+                        !sName.includes('صندوق') && !sName.includes('دریافت') && !sName.includes('دريافت')) {
+                        const tabId = parentLi.getAttribute('tabid') || btn.id.replace('btn-', '');
+                        return { tabLi: parentLi, closeBtn: btn, tabId, doc };
                     }
                 }
             }
@@ -1989,29 +2009,72 @@ function findTabCloseButton() {
     return null;
 }
 
+// پیدا کردن دکمه بستن تب وارده
+function findTabCloseButton() {
+    const info = findRegistrationTabInfo();
+    return info ? info.closeBtn : null;
+}
+
 async function handleAutoCloseTab(force = false) {
     try {
         const settings = await chrome.storage.local.get(['autoimport_autoclose']);
-        if (force || settings.autoimport_autoclose) {
-            aiLogger.info(`Attempting to close registration tab (force=${force})...`);
-            await sleep(600);
-            const closeBtn = findTabCloseButton();
-            if (closeBtn) {
-                aiLogger.info('Registration tab close button found! Clicking now...');
-                try {
-                    closeBtn.click();
-                    closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window.top }));
-                } catch (err) {
-                    aiLogger.warn('Error clicking close button:', err);
-                }
-            } else {
-                aiLogger.warn('Could not find registration tab close button. Trying window.close()...');
-                try { window.close(); } catch (e) { }
-            }
-            await sleep(800);
-        } else {
+        if (!force && !settings.autoimport_autoclose) {
             aiLogger.info('Auto-close setting is OFF.');
+            return;
         }
+
+        aiLogger.info(`Attempting to close registration tab (force=${force})...`);
+        await sleep(500);
+
+        const tabInfo = findRegistrationTabInfo();
+        if (tabInfo && tabInfo.closeBtn) {
+            const { closeBtn, tabId, doc } = tabInfo;
+            aiLogger.info(`Closing registration tab (tabid=${tabId}, btn=${closeBtn.id}) in Farzin...`);
+
+            // ۱. فوکوس و شبیه‌سازی کامل کلیک روی دکمه ضربدر تب
+            const win = doc.defaultView || window;
+            try { closeBtn.focus(); } catch (e) { }
+            try {
+                closeBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: win }));
+                closeBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: win }));
+                closeBtn.click();
+            } catch (err) {
+                aiLogger.warn('Error clicking close button:', err);
+            }
+
+            // ۲. فراخوانی توابع بستن تب در کانتکست صفحه اصلی فرزین به عنوان پشتیبان مطمئن
+            if (tabId) {
+                try {
+                    const script = doc.createElement('script');
+                    script.textContent = `
+                        try {
+                            var tid = "${tabId}";
+                            var btn = document.getElementById("btn-" + tid) || document.querySelector("#TabItem" + tid + " button.close");
+                            if (btn) {
+                                btn.click();
+                            }
+                            if (typeof CloseTabItem === "function") {
+                                CloseTabItem(tid);
+                            } else if (typeof CloseTab === "function") {
+                                CloseTab(tid);
+                            } else if (typeof RemoveTabItem === "function") {
+                                RemoveTabItem(tid);
+                            }
+                        } catch(e) {
+                            console.error('Error closing Farzin tab via script:', e);
+                        }
+                    `;
+                    (doc.head || doc.body || doc.documentElement).appendChild(script);
+                    script.remove();
+                } catch (e) { }
+            }
+
+            aiLogger.info('✅ Close command executed on registration tab.');
+        } else {
+            // هرگز و تحت هیچ شرایطی پنجره کلی مرورگر یا تب اصلی را نمی‌بندیم!
+            aiLogger.warn('Registration tab close button not found. NOT closing window to protect other tabs.');
+        }
+        await sleep(800);
     } catch (e) {
         aiLogger.warn('Auto-close error:', e);
     }
