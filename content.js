@@ -79,15 +79,16 @@ function detectPageAndInject() {
                     if (statusEl) statusEl.textContent = 'وضعیت: متوقف شده';
                 }
 
-                // فقط در صورتی به نامه بعدی برو که منتظر اتمام نامه فعلی نباشیم (یا تایم‌اوت ۱۸۰ ثانیه‌ای/۳ دقیقه‌ای شده باشد) و پاز نباشد
+                // فقط در صورتی به نامه بعدی برو که منتظر اتمام نامه فعلی نباشیم یا تب باز نباشد یا تایم‌اوت شده باشد
                 const isWaiting = stored.autoimport_batch_waiting;
                 const waitTime = stored.autoimport_batch_wait_time || 0;
                 const isTimeout = (Date.now() - waitTime) > 180000;
+                const isTabOpen = checkIsRegistrationTabOpen();
 
-                if (!window.isBatchPaused && (!isWaiting || isTimeout)) {
+                if (!window.isBatchPaused && (!isWaiting || !isTabOpen || isTimeout)) {
                     window.batchIsBusy = false;
                     setTimeout(processNextBatchItem, 1500);
-                } else if (isWaiting && !isTimeout) {
+                } else if (isWaiting && isTabOpen && !isTimeout) {
                     aiLogger.info('Batch is waiting for current form to finish...');
                 }
             } else {
@@ -286,13 +287,22 @@ window.autoImportQueue = [];
 window.isBatchProcessing = false;
 
 async function handleBatchEmailImport() {
-    if (window.isBatchProcessing) {
-        showNotification('⏳ در حال پردازش جمعی...', 'warning');
-        return;
-    }
+    lastBatchProcessTime = 0;
+    window.batchIsBusy = false;
 
-    // پیدا کردن تمام چک‌باکس‌های تیک‌خورده در جدول ResultsTable (فیلتر ردیف‌های نامعتبر و chkAll)
-    const checkboxes = Array.from(document.querySelectorAll('#ResultsTable tr input[type="Checkbox"], #ResultsTable tr input[type="checkbox"]'))
+    // بررسی آیا ثبت گروهی در حال حاضر با پنل فعال در حال اجراست؟
+    const checkState = await chrome.storage.local.get(['autoimport_batch_active', 'autoimport_batch_stopped']);
+    if (window.isBatchProcessing && checkState.autoimport_batch_active && !checkState.autoimport_batch_stopped) {
+        if (document.getElementById('ai-batch-panel')) {
+            showNotification('⏳ ثبت گروهی در حال حاضر فعال است.', 'warning');
+            return;
+        }
+    }
+    window.isBatchProcessing = false;
+
+    // پیدا کردن تمام چک‌باکس‌های تیک‌خورده در جدول (ResultsTable یا EmailGeneralFarsiTable2)
+    const rowCbSelectors = '#ResultsTable tr input[type="Checkbox"], #ResultsTable tr input[type="checkbox"], table.EmailGeneralFarsiTable2 tr input[type="Checkbox"], table.EmailGeneralFarsiTable2 tr input[type="checkbox"]';
+    const checkboxes = Array.from(document.querySelectorAll(rowCbSelectors))
         .filter(cb => {
             if (!cb.checked) return false;
             if (cb.id === 'chkAll' || cb.id.includes('All') || cb.closest('th') || cb.closest('thead')) return false;
@@ -396,20 +406,24 @@ async function handleBatchEmailImport() {
 let autoEmptyIntervalId = null;
 
 async function handleAutoEmptyImport(isResuming = false) {
-    if (window.isBatchProcessing && !isResuming) {
-        showNotification('⏳ در حال پردازش جمعی...', 'warning');
-        return;
-    }
+    lastBatchProcessTime = 0;
+    window.batchIsBusy = false;
+    window.isBatchProcessing = false;
 
     try {
-        await chrome.storage.local.set({ autoimport_autoempty_active: true });
+        await chrome.storage.local.set({
+            autoimport_autoempty_active: true,
+            autoimport_batch_stopped: false,
+            autoimport_batch_waiting: false
+        });
     } catch (e) {
         if (e.message && e.message.includes('Extension context invalidated')) return;
         aiLogger.error('Storage set error:', e);
     }
 
-    // انتخاب فقط ردیف‌های نامه‌ها (بدون سرستون یا chkAll)
-    const checkboxes = Array.from(document.querySelectorAll('#ResultsTable tr input[type="Checkbox"], #ResultsTable tr input[type="checkbox"]'))
+    // انتخاب فقط ردیف‌های نامه‌ها (بدون سرستون یا chkAll) در هر دو ساختار جدول فرزین
+    const rowCbSelectors = '#ResultsTable tr input[type="Checkbox"], #ResultsTable tr input[type="checkbox"], table.EmailGeneralFarsiTable2 tr input[type="Checkbox"], table.EmailGeneralFarsiTable2 tr input[type="checkbox"]';
+    const checkboxes = Array.from(document.querySelectorAll(rowCbSelectors))
         .filter(cb => {
             if (cb.id === 'chkAll' || cb.id.includes('All') || cb.closest('th') || cb.closest('thead')) return false;
             const tr = cb.closest('tr');
@@ -424,12 +438,15 @@ async function handleAutoEmptyImport(isResuming = false) {
     }
 
     // انتخاب تمام نامه‌ها
-    checkboxes.forEach(cb => cb.checked = true);
+    checkboxes.forEach(cb => {
+        cb.checked = true;
+        try { cb.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) { }
+    });
     
     showAutoEmptyOverlay();
 
     // شروع ثبت جمعی
-    handleBatchEmailImport();
+    await handleBatchEmailImport();
 }
 
 // --- ابزار شناور و قابل جابه‌جا کردن پاپ‌آپ‌ها (Draggable) ---
@@ -727,6 +744,9 @@ function checkIsRegistrationTabOpen() {
     const docsToSearch = [document];
     try { if (window.parent && window.parent.document) docsToSearch.push(window.parent.document); } catch (e) { }
     try { if (window.top && window.top.document && window.top !== window.parent) docsToSearch.push(window.top.document); } catch (e) { }
+    for (const d of allDocs()) {
+        if (!docsToSearch.includes(d)) docsToSearch.push(d);
+    }
 
     for (const doc of docsToSearch) {
         if (!doc) continue;
@@ -736,9 +756,8 @@ function checkIsRegistrationTabOpen() {
             for (const f of iframes) {
                 if (!isElementVisible(f)) continue;
 
-                // بررسی مستقیم آدرس فریم
                 const src = f.src || f.getAttribute('src') || '';
-                if (src.includes('ImportIndicator') || src.includes('Indicator') || src.includes('ImportDoc') || src.includes('SelSoft=746B271D02168914')) {
+                if (src.includes('ImportIndicator') || src.includes('Indicator') || src.includes('ImportDoc')) {
                     return true;
                 }
 
@@ -752,18 +771,9 @@ function checkIsRegistrationTabOpen() {
                 } catch (e) { }
             }
 
-            // ۲. بررسی وجود تب‌های باز در نوار بالای فرزین که دارای دکمه بستن هستند
-            const tabs = Array.from(doc.querySelectorAll('li[id^="TabItem"], div[id^="TabItem"], .tab-item'));
-            for (const t of tabs) {
-                if (!isElementVisible(t)) continue;
-
-                // تب‌های دائمی فرزین (مثل صندوق دریافت) فاقد دکمه بستن هستند؛ فقط تب‌های اسناد دارای دکمه بستن هستند
-                const closeBtn = t.querySelector('button.close, .close, .TabClose, [class*="close" i], [class*="TabClose"], [onclick*="close" i], [title*="بستن"], [id^="btn-"]');
-                if (!closeBtn) continue;
-
-                const text = (t.textContent || '').replace(/\s+/g, ' ').trim();
-                if (text.includes('دريافت') || text.includes('دریافت') || text.includes('صندوق')) continue;
-
+            // ۲. بررسی وجود تب باز "ثبت وارده" در نوار بالای فرزین
+            const tabInfo = findRegistrationTabInfo();
+            if (tabInfo && tabInfo.tabLi && isElementVisible(tabInfo.tabLi)) {
                 return true;
             }
         } catch (e) { }
@@ -789,25 +799,33 @@ function startRegistrationTabWatcher() {
                 return;
             }
 
-            // در حین پردازش فرم، heartbeat هر ۳ ثانیه زمان wait_time را رفرش می‌کند.
-            // بنابراین تا زمانی که فرم فعال است، elapsed همواره کمتر از ۵ ثانیه خواهد بود.
-            // حداقل ۶۰ ثانیه بدون هیچ heartbeat باید بگذرد تا زمان منقضی تلقی شود.
             const elapsed = Date.now() - (st.autoimport_batch_wait_time || 0);
-            if (elapsed < 60000) return;
+
+            // در ۴ ثانیه اول اجازه باز شدن و لود اولیه تب فرزین را می‌دهیم
+            if (elapsed < 4000) return;
 
             // بررسی آیا تب یا آی‌فریم فرم وارده هنوز در DOM باز است؟
             const isTabOpen = checkIsRegistrationTabOpen();
             if (!isTabOpen) {
-                aiLogger.info('🔔 Registration tab closed or timed out! Advancing to next letter...');
+                aiLogger.info('🔔 Registration tab closed! Advancing batch queue to next letter...');
                 await chrome.storage.local.set({
                     autoimport_batch_waiting: false,
                     autoimport_batch_next: Date.now()
                 });
+                try { chrome.runtime.sendMessage({ action: 'batchNextSignal' }); } catch (e) { }
+            } else if (elapsed > 180000) {
+                // اگر پس از ۳ دقیقه فرم هنوز باز مانده بود، جهت جلوگیری از فریز شدن ادامه بده
+                aiLogger.warn('⚠️ Batch item timed out (>3min). Forcing next item...');
+                await chrome.storage.local.set({
+                    autoimport_batch_waiting: false,
+                    autoimport_batch_next: Date.now()
+                });
+                try { chrome.runtime.sendMessage({ action: 'batchNextSignal' }); } catch (e) { }
             }
         } catch (e) { }
     };
 
-    registrationTabWatcherInterval = setInterval(checkAndAdvance, 2500);
+    registrationTabWatcherInterval = setInterval(checkAndAdvance, 2000);
 }
 
 function findMatchingBatchRow(allRows, target) {
@@ -877,8 +895,8 @@ async function processNextBatchItem() {
     }
 
     const now = Date.now();
-    if (now - lastBatchProcessTime < 3000) {
-        aiLogger.info('processNextBatchItem debounced: called too soon after previous call.');
+    if (now - lastBatchProcessTime < 1000) {
+        aiLogger.info('processNextBatchItem throttled (<1s).');
         return;
     }
 
@@ -922,10 +940,14 @@ async function processNextBatchItem() {
         // چک کن ببین آیا فرم دیگری هم‌اکنون فعال و در حال پردازش است؟
         if (storedBatch.autoimport_batch_waiting) {
             const elapsed = Date.now() - (storedBatch.autoimport_batch_wait_time || 0);
-            if (elapsed < 180000) { // کمتر از ۳ دقیقه
-                aiLogger.info('یک نامه هم‌اکنون در حال ثبت و ارجاع است. لغو فراخوانی جدید برای جلوگیری از تداخل.', storedBatch);
+            const isTabStillOpen = checkIsRegistrationTabOpen();
+            if (isTabStillOpen && elapsed < 180000) {
+                aiLogger.info('یک نامه هم‌اکنون در حال ثبت و ارجاع است. لغو فراخوانی جدید برای جلوگیری از تداخل.');
                 window.batchIsBusy = false;
                 return;
+            } else if (!isTabStillOpen) {
+                aiLogger.info('پرچم انتظار فعال بود اما تب فرم بسته است. آزادسازی پرچم انتظار...');
+                await chrome.storage.local.set({ autoimport_batch_waiting: false });
             }
         }
 
@@ -1202,12 +1224,17 @@ async function enrichWithOCR(baseData) {
     await executeAutoSaveAndSend();
 
     // بستن خودکار / سیگنال batch بعد از اتمام (مشابه startFormAutoImport)
-    const settings = await chrome.storage.local.get(['autoimport_autoclose']);
-    if (settings.autoimport_autoclose) {
-        await handleAutoCloseTab();
-        await sleep(1000);
+    const settings = await chrome.storage.local.get(['autoimport_autoclose', 'autoimport_batch_active', 'autoimport_batch_stopped']);
+    const isBatch = !!(settings.autoimport_batch_active && !settings.autoimport_batch_stopped);
+    const shouldClose = !!(settings.autoimport_autoclose || isBatch);
+
+    if (isBatch) {
         await chrome.storage.local.set({ autoimport_batch_next: Date.now(), autoimport_batch_waiting: false });
         try { chrome.runtime.sendMessage({ action: 'batchNextSignal' }); } catch (e) { }
+    }
+
+    if (shouldClose) {
+        await handleAutoCloseTab(true);
     } else {
         showNotification('✅ نامه ثبت شد. برای ادامه، دکمه زیر را بزنید یا تب را ببندید.', 'info');
         showReviewAndNextButton();
@@ -1656,21 +1683,25 @@ async function startFormAutoImport(eventOrFlag) {
         showNotification('✅ نامه با موفقیت ثبت و ارجاع داده شد', 'success');
         sessionStorage.setItem(sessionKey, 'true');
 
-        // بررسی تنظیمات بسته شدن خودکار
+        // بررسی تنظیمات بسته شدن خودکار و ثبت جمعی
         const settings = await chrome.storage.local.get(['autoimport_autoclose', 'autoimport_batch_stopped', 'autoimport_batch_active']);
-        if (settings.autoimport_autoclose) {
-            // حالت خودکار: اول بستن تب، سپس سیگنال به نامه بعدی
-            await handleAutoCloseTab();
-            await sleep(1000);
-            if (!settings.autoimport_batch_stopped && settings.autoimport_batch_active) {
-                await chrome.storage.local.set({
-                    autoimport_batch_next: Date.now(),
-                    autoimport_batch_waiting: false
-                });
-                try { chrome.runtime.sendMessage({ action: 'batchNextSignal' }); } catch (e) { }
-            }
+        const isBatch = !!(settings.autoimport_batch_active && !settings.autoimport_batch_stopped);
+        const shouldClose = !!(settings.autoimport_autoclose || isBatch);
+
+        // ۱. ابتدا ارسال قطعی سیگنال پیشروی صف به منظور جلوگیری از لغو دستور در صورت تخریب کانتکست آی‌فریم
+        if (isBatch) {
+            await chrome.storage.local.set({
+                autoimport_batch_next: Date.now(),
+                autoimport_batch_waiting: false
+            });
+            try { chrome.runtime.sendMessage({ action: 'batchNextSignal' }); } catch (e) { }
+        }
+
+        if (shouldClose) {
+            // ۲. بستن تب وارده
+            await handleAutoCloseTab(true);
         } else {
-            // حالت دستی: سیگنال را موکول به بسته شدن واقعی تب می‌کنیم
+            // حالت دستی (فقط در ثبت انفرادی بدون ثبت گروهی فعال):
             showNotification('✅ نامه ثبت و ارجاع شد. برای ادامه، دکمه زیر را بزنید یا تب را ببندید.', 'info');
             updatePanelStep(5, 'done', '✅ پردازش و ارجاع کامل شد');
 
@@ -1689,23 +1720,11 @@ async function startFormAutoImport(eventOrFlag) {
                 }
             };
 
-            // اگر دکمه بستن تب فریم پیدا شد، روی آن listener بگذار
             const tabCloseBtn = findTabCloseButton();
             if (tabCloseBtn) {
                 tabCloseBtn.addEventListener('click', sendSignalOnClose, { once: true });
-                aiLogger.info('Tab close button found — batch signal deferred to manual close.');
             } else {
-                // fallback: beforeunload فریم (اگر تب به شکل window/iframe بسته می‌شود)
                 window.addEventListener('beforeunload', sendSignalOnClose, { once: true });
-                // همچنین اگر storage را watch کنیم و تب مدیریت شود:
-                // برای اطمینان از این‌که اگر ۳ دقیقه گذشت سیگنال ارسال شود (timeout safety)
-                setTimeout(async () => {
-                    const st = await chrome.storage.local.get(['autoimport_batch_waiting']);
-                    if (st.autoimport_batch_waiting) {
-                        aiLogger.warn('Auto-close is OFF but 3min passed — sending batch signal as safety timeout.');
-                        await sendSignalOnClose();
-                    }
-                }, 180000);
             }
         }
 
@@ -1914,7 +1933,7 @@ function setupRegistrationTabCloseListeners() {
         if (closeBtn && !closeBtn._aiCloseListenerAttached) {
             closeBtn._aiCloseListenerAttached = true;
             closeBtn.addEventListener('click', () => {
-                setTimeout(notifyBatchTabClosed, 400);
+                notifyBatchTabClosed();
             }, { once: true });
             aiLogger.info('Attached early close listener to tab close button.');
         }
@@ -2017,9 +2036,10 @@ function findTabCloseButton() {
 
 async function handleAutoCloseTab(force = false) {
     try {
-        const settings = await chrome.storage.local.get(['autoimport_autoclose']);
-        if (!force && !settings.autoimport_autoclose) {
-            aiLogger.info('Auto-close setting is OFF.');
+        const settings = await chrome.storage.local.get(['autoimport_autoclose', 'autoimport_batch_active']);
+        const shouldClose = force || settings.autoimport_autoclose || settings.autoimport_batch_active;
+        if (!shouldClose) {
+            aiLogger.info('Auto-close setting is OFF and not in batch mode.');
             return;
         }
 
@@ -3561,13 +3581,15 @@ function showReviewAndNextButton() {
 
     document.getElementById('ai-btn-proceed-next')?.addEventListener('click', async () => {
         showNotification('در حال انتقال به نامه بعدی...', 'info');
-        await handleAutoCloseTab(true); // بستن اجباری تب پس از تایید دستی
-        await sleep(1000);
+        // ۱. ابتدا ثبت قطعی سیگنال پیشروی صف
         await chrome.storage.local.set({
             autoimport_batch_next: Date.now(),
             autoimport_batch_waiting: false
         });
         try { chrome.runtime.sendMessage({ action: 'batchNextSignal' }); } catch (e) { }
+
+        // ۲. سپس بستن تب
+        await handleAutoCloseTab(true);
     });
 }
 
