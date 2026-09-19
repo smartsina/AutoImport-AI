@@ -163,6 +163,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         handleBatchNextSignal(sendResponse);
         return true;
     }
+    if (request.action === 'batchStopSignal') {
+        activeRegistrationTabId = null;
+        chrome.storage.local.set({
+            autoimport_batch_active: false,
+            autoimport_batch_queue: [],
+            autoimport_batch_total: 0,
+            autoimport_batch_waiting: false,
+            autoimport_batch_paused: false,
+            autoimport_autoempty_active: false,
+            autoimport_batch_stopped: true
+        }).catch(() => {});
+        logger.info('Received batchStopSignal in background. Batch halted.');
+        chrome.tabs.query({}).then(tabs => {
+            for (const t of tabs) {
+                if (t.id) chrome.tabs.sendMessage(t.id, { action: 'batchStopSignal' }).catch(() => {});
+            }
+        }).catch(() => {});
+        sendResponse({ success: true });
+        return true;
+    }
     if (request.action === 'startOcrServerNative') {
         handleStartOcrServerNative(sendResponse);
         return true;
@@ -182,21 +202,15 @@ let activeRegistrationTabId = null;
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     try {
         const isFormTab = (tabId === activeRegistrationTabId);
-        const stored = await chrome.storage.local.get(['autoimport_batch_active', 'autoimport_batch_waiting']);
+        const stored = await chrome.storage.local.get(['autoimport_batch_active', 'autoimport_batch_waiting', 'autoimport_batch_stopped']);
         
-        if (stored.autoimport_batch_active && stored.autoimport_batch_waiting && isFormTab && activeRegistrationTabId) {
+        if (stored.autoimport_batch_active && !stored.autoimport_batch_stopped && stored.autoimport_batch_waiting && isFormTab && activeRegistrationTabId) {
             logger.info(`Tab ${tabId} was closed (form tab: ${isFormTab}). Clearing wait state and advancing batch queue...`);
             activeRegistrationTabId = null;
             await chrome.storage.local.set({
                 autoimport_batch_waiting: false,
                 autoimport_batch_next: Date.now()
             });
-            const tabs = await chrome.tabs.query({});
-            for (const t of tabs) {
-                if (t.id) {
-                    chrome.tabs.sendMessage(t.id, { action: 'triggerNextBatchItem' }).catch(() => {});
-                }
-            }
         } else if (isFormTab) {
             activeRegistrationTabId = null;
         }
@@ -292,19 +306,20 @@ async function handleStartOcrServerNative(sendResponse) {
 
 async function handleBatchNextSignal(sendResponse) {
     try {
-        logger.info('Received batchNextSignal. Updating storage and notifying all tabs...');
         activeRegistrationTabId = null;
+        const st = await chrome.storage.local.get(['autoimport_batch_active', 'autoimport_batch_stopped']);
+        if (!st.autoimport_batch_active || st.autoimport_batch_stopped) {
+            logger.info('Batch is stopped or inactive. Ignoring batchNextSignal.');
+            sendResponse({ success: false, reason: 'stopped_or_inactive' });
+            return;
+        }
+
+        logger.info('Received batchNextSignal. Advancing batch queue via storage signal...');
         await chrome.storage.local.set({
             autoimport_batch_next: Date.now(),
             autoimport_batch_waiting: false
         });
 
-        const tabs = await chrome.tabs.query({});
-        for (const t of tabs) {
-            if (t.id) {
-                chrome.tabs.sendMessage(t.id, { action: 'triggerNextBatchItem' }).catch(() => {});
-            }
-        }
         sendResponse({ success: true });
     } catch (e) {
         logger.error('handleBatchNextSignal error:', e);
