@@ -415,6 +415,25 @@ async function handleWatchReferralPopup(payload, originTabId, sendResponse) {
 
                     if (r.startsWith('clicked:')) {
                         logger.info('✅ Referral clicked via background tab scan:', r, 'in tab', tab.id, tab.url?.substring(0, 60));
+                        // پس از کلیک شخص در پنجره پاپ‌آپ، با تاخیر ۱.۵ ثانیه دکمه ارجاع (BtnDocumentSend) را در همان پنجره کلیک کن
+                        setTimeout(async () => {
+                            try {
+                                await chrome.scripting.executeScript({
+                                    target: { tabId: tab.id, allFrames: true },
+                                    func: () => {
+                                        const btn = document.querySelector('.BtnDocumentSend, input#OK[value*="ارجاع"], input[onclick*="Send"], input[value="ارجاع"]');
+                                        if (btn) {
+                                            btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                                            btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                                            btn.click();
+                                        }
+                                        try {
+                                            if (typeof Send === 'function') Send();
+                                        } catch (e) { }
+                                    }
+                                });
+                            } catch (e) { }
+                        }, 1500);
                         sendResponse({ success: true, detail: r });
                         return;
                     }

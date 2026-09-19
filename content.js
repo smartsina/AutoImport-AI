@@ -2234,8 +2234,12 @@ async function clickSendAndHandle(refName) {
     // صبر بیشتر برای لود کامل پاپ‌آپ ارجاع
     await sleep(3500);
 
-    // پیدا کردن شخص ارجاع در پاپ‌آپ (افزایش زمان انتظار به 30 ثانیه)
-    const found = await waitForReferralPerson(30000, refName);
+    // پیدا کردن شخص ارجاع در پاپ‌آپ (افزایش زمان انتظار به 30 ثانیه) و ثبت رفرنس داکیومنت
+    let referralDoc = null;
+    const found = await waitForReferralPerson(30000, refName, (doc) => {
+        referralDoc = doc;
+    });
+
     if (!found) {
         // لاگ تشخیصی: نمایش تمام متن‌های موجود در صفحه برای دیباگ
         const allText = [...document.querySelectorAll('label, td, span, button')].map(e => e.textContent.trim()).filter(t => t.length > 2 && t.length < 50).slice(0, 30);
@@ -2243,29 +2247,98 @@ async function clickSendAndHandle(refName) {
         throw new Error(`شخص ارجاع (${refName}) در پاپ‌آپ پیدا نشد`);
     }
 
-    await sleep(800);
-    await clickReferralOK();
-    await sleep(500);
-    closeReferralPopup();
+    // صبر ۱.۵ ثانیه برای اعمال شدن انتخاب شخص در جدول گیرندگان فرزین (تکمیل AJAX)
+    await sleep(1500);
+
+    // کلیک روی دکمه نهایی ارجاع (<input id="OK" class="BtnDocumentSend" onclick="Send()" value="ارجاع">)
+    const clicked = await clickReferralOK(referralDoc);
+    if (!clicked) {
+        throw new Error('دکمه نهایی ارجاع (BtnDocumentSend / Send()) در پاپ‌آپ پیدا نشد یا کلیک نشد');
+    }
+
+    // انتظار برای ثبت و بسته شدن خودکار دیالوگ ارجاع توسط فرزین
+    // توجه: نباید با زور و کلید Escape یا کلیک دکمه ضربدر پنجره را بست چون فرآیند لغو می‌شود.
+    aiLogger.info('Waiting for referral dialog to complete and close...');
+    const waitStart = Date.now();
+    let dialogClosed = false;
+    while (Date.now() - waitStart < 10000) {
+        await sleep(600);
+        const stillOpen = findReferralSendButton(getAllPossibleDocs(referralDoc));
+        if (!stillOpen) {
+            aiLogger.info('✅ Referral dialog closed successfully by Farzin.');
+            dialogClosed = true;
+            break;
+        }
+    }
+
+    if (!dialogClosed) {
+        aiLogger.info('Referral button still visible after 10s; attempting secondary click fallback...');
+        const match = findReferralSendButton(getAllPossibleDocs(referralDoc));
+        if (match && match.btn) {
+            await executeReferralSend(match.btn, match.doc);
+            await sleep(1500);
+        }
+    }
 }
 
 // ===================================================
 // ۶. پاپ‌آپ ارجاع
 // ===================================================
-async function waitForReferralPerson(timeout, refName) {
+function getAllPossibleDocs(preferredDoc = null) {
+    const docs = [];
+    const addDoc = (d) => {
+        if (d && !docs.includes(d)) docs.push(d);
+    };
+
+    if (preferredDoc) addDoc(preferredDoc);
+    try {
+        if (preferredDoc?.defaultView?.parent?.document) {
+            addDoc(preferredDoc.defaultView.parent.document);
+        }
+    } catch (e) { }
+
+    addDoc(document);
+    try { if (window.parent && window.parent.document) addDoc(window.parent.document); } catch (e) { }
+    try { if (window.top && window.top.document) addDoc(window.top.document); } catch (e) { }
+
+    try {
+        for (const d of allDocs()) {
+            addDoc(d);
+        }
+    } catch (e) { }
+
+    try {
+        for (let i = 0; i < window.frames.length; i++) {
+            try {
+                const fd = window.frames[i].document;
+                if (fd) addDoc(fd);
+            } catch (fe) { }
+        }
+    } catch (e) { }
+
+    return docs;
+}
+
+async function waitForReferralPerson(timeout, refName, onDocFound = null) {
     const end = Date.now() + timeout;
     let iteration = 0;
     while (Date.now() < end) {
         // جستجو در تمام داکیومنت‌ها (شامل iframeهای تو در تو)
         for (const doc of allDocs()) {
-            if (clickReferralPersonIn(doc, refName)) return true;
+            if (clickReferralPersonIn(doc, refName)) {
+                if (typeof onDocFound === 'function') onDocFound(doc);
+                return true;
+            }
         }
         // جستجو در popup window (اگر پاپ‌آپ در پنجره جدید باز شده)
         try {
             for (let i = 0; i < window.frames.length; i++) {
                 try {
                     const frameDoc = window.frames[i].document;
-                    if (frameDoc && clickReferralPersonIn(frameDoc, refName)) return true;
+                    if (frameDoc && clickReferralPersonIn(frameDoc, refName)) {
+                        if (typeof onDocFound === 'function') onDocFound(frameDoc);
+                        return true;
+                    }
                 } catch (fe) { }
             }
         } catch (e) { }
@@ -2372,49 +2445,133 @@ function clickReferralPersonIn(doc, refName) {
     return false;
 }
 
+function findReferralSendButton(docs) {
+    // ترتیب اولویت دقیق بر اساس مشخصات دکمه ارجاع فرزین:
+    // <input id="OK" class="BtnDocumentSend" onclick="Send()" type="button" value="ارجاع" style="width: 100px; text-indent: 5px;">
+    const specificSelectors = [
+        'input.BtnDocumentSend',
+        'input#OK.BtnDocumentSend',
+        'input[id$="OK"].BtnDocumentSend',
+        '.BtnDocumentSend',
+        'input#OK[value*="ارجاع"]',
+        'input[id$="OK"][value*="ارجاع"]',
+        'input[id*="OK"][value*="ارجاع"]',
+        'input[onclick*="Send"][value*="ارجاع"]',
+        'input[type="button"][value="ارجاع"]',
+        'input[type="submit"][value="ارجاع"]',
+        'input[value="ارجاع"]',
+        'input[onclick*="Send"]',
+        'button.BtnDocumentSend',
+        'button[onclick*="Send"]',
+        'input#OK[type="button"]',
+        'input#OK'
+    ];
 
-async function clickReferralOK() {
-    const okTexts = ['ok', 'تأیید', 'تایید', 'ثبت', 'ارسال', 'ارجاع', 'confirm'];
+    for (const doc of docs) {
+        if (!doc) continue;
+        try {
+            for (const sel of specificSelectors) {
+                const candidates = Array.from(doc.querySelectorAll(sel));
+                for (const el of candidates) {
+                    if (isElementVisible(el)) {
+                        const val = (el.value || el.textContent || '').trim();
+                        const onclick = el.getAttribute('onclick') || '';
+                        // اطمینان از اینکه دکمه لغو یا انصراف نباشد
+                        if (val.includes('انصراف') || val.includes('لغو') || val.includes('بستن') || val.includes('cancel')) continue;
+                        // دکمه نباید دکمه شروع ارجاع روی فرم اصلی (ulSend) باشد
+                        if (el.id === 'ulSend' || el.id?.endsWith('ulSend')) continue;
 
-    // اولویت اول: جستجو با آیدی OK یا کلاس BtnDocumentSend
-    for (const doc of allDocs()) {
-        const btnOk = doc.getElementById('OK') || doc.querySelector('.BtnDocumentSend');
-        if (btnOk) {
-            btnOk.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-            btnOk.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-            btnOk.click();
-            aiLogger.info('OK clicked via id/class');
-            return true;
-        }
-    }
-
-    // اولویت دوم: جستجوی متنی دکمه‌ها
-    for (const doc of allDocs()) {
-        for (const btn of doc.querySelectorAll('button, input[type="button"], input[type="submit"]')) {
-            const txt = (btn.textContent || btn.value || '').trim().toLowerCase();
-            if (okTexts.some(t => txt.includes(t))) {
-                btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                btn.click();
-                aiLogger.info('OK clicked via text:', txt);
-                return true;
+                        if (el.classList.contains('BtnDocumentSend') || val === 'ارجاع' || val.includes('ارجاع') || onclick.includes('Send') || el.id === 'OK') {
+                            return { btn: el, doc };
+                        }
+                    }
+                }
             }
-        }
+        } catch (e) { }
     }
-    return false;
+    return null;
 }
 
-function closeReferralPopup() {
-    for (const doc of allDocs()) {
-        for (const btn of doc.querySelectorAll('.ui-dialog-titlebar-close, .modal .close, [data-dismiss="modal"]')) {
-            if (btn.offsetParent !== null) {
-                btn.click();
-                aiLogger.info('Referral popup closed safely');
-                return;
-            }
-        }
+async function executeReferralSend(btn, doc) {
+    if (!btn) return false;
+    aiLogger.info('✅ Executing referral Send on button:', {
+        id: btn.id,
+        className: btn.className,
+        value: btn.value,
+        onclick: btn.getAttribute('onclick'),
+        docTitle: doc?.title || 'frame'
+    });
+
+    const win = doc.defaultView || window;
+
+    // ۱. اسکرول و فوکوس روی دکمه
+    try { btn.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) { }
+    try { btn.focus(); } catch (e) { }
+
+    // ۲. ارسال زنجیره کامل رویدادهای ماوس
+    const events = ['mouseenter', 'mouseover', 'mousedown', 'mouseup', 'click'];
+    for (const evtName of events) {
+        try {
+            btn.dispatchEvent(new MouseEvent(evtName, {
+                bubbles: true,
+                cancelable: true,
+                view: win,
+                buttons: 1
+            }));
+        } catch (e) { }
     }
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    try { btn.click(); } catch (e) { }
+
+    // ۳. فراخوانی مستقیم تابع Send() در اسکوپ صفحه اصلی (MAIN world)
+    try {
+        const script = doc.createElement('script');
+        script.textContent = `
+            try {
+                if (typeof Send === 'function') {
+                    console.log('[AutoImport AI] Direct Send() call executed in frame context');
+                    Send();
+                } else {
+                    var targetBtn = document.getElementById('OK') || document.querySelector('.BtnDocumentSend, input[value="ارجاع"], input[onclick*="Send"]');
+                    if (targetBtn) {
+                        if (typeof targetBtn.onclick === 'function') {
+                            targetBtn.onclick();
+                        } else {
+                            targetBtn.click();
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('[AutoImport AI] Error in injected Send() script:', err);
+            }
+        `;
+        (doc.head || doc.body || doc.documentElement).appendChild(script);
+        script.remove();
+        aiLogger.info('✅ Send() function invoked via injected script in referral doc.');
+    } catch (e) {
+        aiLogger.warn('Error injecting Send script:', e);
+    }
+
+    return true;
+}
+
+async function clickReferralOK(preferredDoc = null) {
+    aiLogger.info('Attempting to find and click referral OK/Send button...');
+    const startTime = Date.now();
+    const timeoutMs = 15000; // تا ۱۵ ثانیه مهلت برای یافتن دکمه
+
+    while (Date.now() - startTime < timeoutMs) {
+        const docs = getAllPossibleDocs(preferredDoc);
+        const match = findReferralSendButton(docs);
+        if (match && match.btn) {
+            aiLogger.info('✅ Referral Send button found! Firing click and Send()...');
+            await executeReferralSend(match.btn, match.doc);
+            return true;
+        }
+        await sleep(500);
+    }
+
+    aiLogger.error('❌ Referral Send button (BtnDocumentSend / Send()) not found after timeout!');
+    return false;
 }
 
 // ===================================================
